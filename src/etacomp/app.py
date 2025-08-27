@@ -1,14 +1,16 @@
 from PySide6.QtWidgets import QApplication
 from .ui.main_window import MainWindow
-from .config.defaults import DEFAULT_THEME
 from .ui.themes import load_theme_qss
+from .config.prefs import load_prefs
 
 
 def run():
     import sys
     app = QApplication(sys.argv)
 
-    qss = load_theme_qss(DEFAULT_THEME)
+    # Thème (depuis préférences)
+    prefs = load_prefs()
+    qss = load_theme_qss(prefs.theme)
     if qss:
         app.setStyleSheet(qss)
 

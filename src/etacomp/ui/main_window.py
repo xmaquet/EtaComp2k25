@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
         self.library_tab = LibraryTab()
         self.settings_tab = SettingsTab()
 
-        # Connexion : quand la bibliothèque change, la session recharge la liste
+        # Bibliothèque → Session (recharger la liste des comparateurs)
         self.library_tab.comparators_changed.connect(self.session_tab.reload_comparators)
 
         tabs.addTab(self.session_tab, "Session")
