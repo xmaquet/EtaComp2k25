@@ -1,0 +1,3 @@
+QWidget { background: #222; color: #eee; font-size: 14px; }
+QTabBar::tab { padding: 8px 14px; }
+QTabBar::tab:selected { font-weight: 600; }

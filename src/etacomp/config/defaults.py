@@ -1,0 +1,2 @@
+DEFAULT_THEME = "light"
+APP_TITLE = "EtaComp2K25"
