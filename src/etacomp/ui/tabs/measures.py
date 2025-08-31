@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QSpinBox,
     QDoubleSpinBox, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
-    QMessageBox, QComboBox
+    QMessageBox, QComboBox, QTextEdit
 )
 
 from ...models.session import MeasureSeries
-    # ↑ assure-toi que MeasureSeries existe bien (modèle enrichi)
 from ...state.session_store import session_store
 from ...io.serialio import list_serial_ports, SerialConnection, SerialReaderThread
 
@@ -65,7 +64,7 @@ class MeasuresTab(QWidget):
         f1.addRow("", QWidget())
         f1.itemAt(f1.rowCount()-1, QFormLayout.FieldRole).widget().setLayout(hb2)
 
-        # ===== Zone 2 : Relevés (flux & manuel) =====
+        # ===== Zone 2 : Relevés =====
         g_readings = QGroupBox("Relevés (mm)")
         v2 = QVBoxLayout(g_readings)
         top = QHBoxLayout()
@@ -78,11 +77,27 @@ class MeasuresTab(QWidget):
         v2.addLayout(top)
         v2.addWidget(self.list)
 
+        # ===== Zone 3 : Logger brut =====
+        g_log = QGroupBox("Flux série (lignes brutes)")
+        v3 = QVBoxLayout(g_log)
+        log_bar = QHBoxLayout()
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumHeight(120)
+        self.btn_clear_log = QPushButton("Effacer le log")   # ⬅️ NOUVEAU
+        log_bar.addStretch()
+        log_bar.addWidget(self.btn_clear_log)
+        v3.addWidget(self.log_view)
+        v3.addLayout(log_bar)
+
         # ===== Actions globales =====
         actions = QHBoxLayout()
         self.btn_apply_series = QPushButton("Appliquer la série")
         self.btn_save_session = QPushButton("Enregistrer la session…")
-        self.btn_save_session.setStyleSheet("QPushButton{background:#28a745;color:#fff;font-weight:600;padding:6px 12px;border-radius:6px;}QPushButton:hover{background:#218838;}")
+        self.btn_save_session.setStyleSheet(
+            "QPushButton{background:#28a745;color:#fff;font-weight:600;padding:6px 12px;border-radius:6px;}"
+            "QPushButton:hover{background:#218838;}"
+        )
         actions.addStretch()
         actions.addWidget(self.btn_apply_series)
         actions.addWidget(self.btn_save_session)
@@ -90,10 +105,11 @@ class MeasuresTab(QWidget):
         root.addWidget(g_conn)
         root.addWidget(g_series)
         root.addWidget(g_readings)
+        root.addWidget(g_log)
         root.addLayout(actions)
         root.addStretch()
 
-        # ===== État série/serial =====
+        # ===== État interne =====
         self._conn = SerialConnection()
         self._reader: SerialReaderThread | None = None
         self._capturing = False
@@ -114,6 +130,7 @@ class MeasuresTab(QWidget):
         self.btn_clear_list.clicked.connect(self._clear_series)
         self.btn_apply_series.clicked.connect(self._apply_series)
         self.btn_save_session.clicked.connect(self._save_session)
+        self.btn_clear_log.clicked.connect(self._clear_log)   # ⬅️ NOUVEAU
 
         # Store events
         session_store.session_changed.connect(self._on_session_changed)
@@ -144,8 +161,7 @@ class MeasuresTab(QWidget):
             QMessageBox.warning(self, "Connexion série", f"Échec de connexion sur {port} @ {baud} :\n{e}")
             return
 
-        # Lancer le thread de lecture avec callback
-        self._reader = SerialReaderThread(self._conn, self._on_value_from_serial)
+        self._reader = SerialReaderThread(self._conn, self._on_line_from_serial)
         self._reader.start()
         self.btn_connect.setEnabled(False)
         self.btn_disconnect.setEnabled(True)
@@ -180,19 +196,16 @@ class MeasuresTab(QWidget):
         self.btn_start_series.setEnabled(True)
         self.btn_stop_series.setEnabled(False)
 
-    def _on_value_from_serial(self, value: float):
-        # callback appelé depuis le thread -> on passe par la file d'événements.
-        QTimer.singleShot(0, lambda v=value: self._append_reading(v))
+    # ---------- Callback série ----------
+    def _on_line_from_serial(self, raw: str, value: float | None):
+        QTimer.singleShot(0, lambda: self._append_line(raw, value))
 
-    def _append_reading(self, value: float):
-        if not self._capturing:
-            return
-        self.list.addItem(QListWidgetItem(f"{value}"))
-        # Arrêt auto si on a atteint le quota prévu
-        if self.list.count() >= int(self.planned_count.value()):
-            self._stop_capture()
-            # Appliquer automatiquement la série ?
-            # Ici on laisse le contrôle à l'utilisateur, il clique "Appliquer la série".
+    def _append_line(self, raw: str, value: float | None):
+        self.log_view.append(raw)
+        if self._capturing and value is not None:
+            self.list.addItem(QListWidgetItem(f"{value}"))
+            if self.list.count() >= int(self.planned_count.value()):
+                self._stop_capture()
 
     # ---------- Édition manuelle ----------
     def _add_reading_manual(self):
@@ -209,6 +222,9 @@ class MeasuresTab(QWidget):
 
     def _clear_series(self):
         self.list.clear()
+
+    def _clear_log(self):
+        self.log_view.clear()
 
     # ---------- Intégration store ----------
     def _current_series_from_ui(self) -> MeasureSeries:
@@ -234,12 +250,10 @@ class MeasuresTab(QWidget):
             QMessageBox.warning(self, "Erreur", f"Échec de l’enregistrement :\n{e}")
 
     def _on_session_changed(self, _s):
-        # rien d’automatique pour le moment : l’utilisateur pilote index/cible/compte
         pass
 
     # ---------- Nettoyage ----------
     def deleteLater(self):
-        # s’assure que le thread est bien stoppé
         try:
             self._stop_capture()
             if self._reader:

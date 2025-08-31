@@ -9,11 +9,12 @@ import serial
 from serial.tools import list_ports
 
 
-FLOAT_PATTERN = re.compile(r"[-+]?\d+(?:[.,]\d+)?")  # tolère , comme séparateur
+# regex qui attrape le premier nombre (accepte , comme séparateur décimal)
+FLOAT_PATTERN = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 
 
 def list_serial_ports() -> list[str]:
-    """Retourne les noms de ports (ex: 'COM3', 'COM7')."""
+    """Retourne les noms de ports série disponibles (ex: COM3, COM7)."""
     ports = []
     for p in list_ports.comports():
         ports.append(p.device)
@@ -21,11 +22,12 @@ def list_serial_ports() -> list[str]:
 
 
 class SerialConnection:
-    """Petit wrapper synchrone autour de pyserial."""
+    """Wrapper simple autour de pyserial.Serial."""
     def __init__(self):
         self._ser: Optional[serial.Serial] = None
 
     def open(self, port: str, baudrate: int = 115200, timeout: float = 0.2):
+        """Ouvre la connexion série sur le port demandé."""
         self.close()
         self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
 
@@ -33,6 +35,7 @@ class SerialConnection:
         return self._ser is not None and self._ser.is_open
 
     def close(self):
+        """Ferme la connexion proprement."""
         try:
             if self._ser and self._ser.is_open:
                 self._ser.close()
@@ -40,6 +43,7 @@ class SerialConnection:
             self._ser = None
 
     def readline(self) -> Optional[str]:
+        """Lit une ligne (str) ou None si rien reçu."""
         if not self.is_open():
             return None
         try:
@@ -53,16 +57,18 @@ class SerialConnection:
 
 class SerialReaderThread:
     """
-    Thread léger qui lit en boucle sur la connexion et appelle un callback lorsqu'une ligne
-    contenant un nombre est reçue.
+    Thread qui lit en continu sur une SerialConnection et appelle un callback
+    avec chaque ligne brute reçue + une valeur numérique optionnelle extraite.
     """
-    def __init__(self, conn: SerialConnection, on_value: Callable[[float], None]):
+
+    def __init__(self, conn: SerialConnection, on_line: Callable[[str, Optional[float]], None]):
         self._conn = conn
-        self._on_value = on_value
+        self._on_line = on_line
         self._stop = threading.Event()
         self._th: Optional[threading.Thread] = None
 
     def start(self):
+        """Démarre le thread de lecture."""
         self._stop.clear()
         if self._th and self._th.is_alive():
             return
@@ -70,12 +76,14 @@ class SerialReaderThread:
         self._th.start()
 
     def stop(self):
+        """Arrête le thread."""
         self._stop.set()
         if self._th:
             self._th.join(timeout=1.0)
         self._th = None
 
     def _parse_float(self, text: str) -> Optional[float]:
+        """Tente d’extraire un float de la ligne brute."""
         m = FLOAT_PATTERN.search(text)
         if not m:
             return None
@@ -92,9 +100,8 @@ class SerialReaderThread:
                 time.sleep(0.01)
                 continue
             val = self._parse_float(line)
-            if val is not None:
-                try:
-                    self._on_value(val)
-                except Exception:
-                    # on isole les erreurs de callback
-                    pass
+            try:
+                self._on_line(line, val)
+            except Exception:
+                # on ignore les erreurs du callback
+                pass
