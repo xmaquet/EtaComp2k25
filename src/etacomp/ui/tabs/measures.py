@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QPushButton,
     QMessageBox, QComboBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem
@@ -74,6 +75,7 @@ class MeasuresTab(QWidget):
         g_cfg = QGroupBox("Déroulé de la campagne")
         f1 = QFormLayout(g_cfg)
         self.lbl_next = QLabel("Prochaine cible : —")
+        self.lbl_next.setToolTip("Indique la cible à afficher sur le comparateur pour la prochaine mesure.")
         self.btn_start = QPushButton("Démarrer")
         self.btn_start.setStyleSheet(BTN_PRIMARY_CSS)
         self.btn_start.setToolTip("Démarrer la campagne de mesures (montant puis descendant).")
@@ -143,6 +145,7 @@ class MeasuresTab(QWidget):
         self.current_col: int = 0
         self.waiting_zero: bool = True
         self.by_target: Dict[float, MeasureSeries] = {}
+        self._hl_last: Optional[Tuple[int, int]] = None  # (row, col) dernière cellule surlignée
 
         # init
         self._refresh_ports()
@@ -160,13 +163,7 @@ class MeasuresTab(QWidget):
         session_store.session_changed.connect(self._on_session_changed)
         session_store.measures_updated.connect(self._on_session_changed)
 
-    # ------------- (reste du code identique à ta dernière version :
-    # logique déroulé cycles ↑↓, remplissage tableau, calcul moyennes,
-    # push vers session_store, etc.)
-    # J’ai uniquement enrichi l’UI avec infobulles et styles de boutons.
-
-
-    # ---------- session -> table ----------
+    # ------------- session -> table -------------
     def _rebuild_from_session(self):
         s = session_store.current
 
@@ -205,12 +202,12 @@ class MeasuresTab(QWidget):
         self.by_target = {t: MeasureSeries(target=t, readings=[]) for t in self.targets}
         for ms in s.series:
             if ms.target in self.by_target:
-                # Remplir colonne par colonne (ordre 1↑,1↓,2↑,2↓,…)
-                for col, val in enumerate(ms.readings):
-                    row = self._row_for_col_index(col)
-                    if row is not None and row < self.row_avg_index and col < self.table.columnCount():
-                        self.table.setItem(row, col % self.table.columnCount(), QTableWidgetItem(str(val)))
-                # Conserver readings (normalisé à plat)
+                # Remplir ligne/col depuis readings (ordre 1↑,1↓,2↑,2↓,…)
+                for pos, val in enumerate(ms.readings):
+                    row = self._row_for_state((pos // 2) + 1, pos % 2 == 0)
+                    col = self._col_for_target(ms.target)
+                    if row is not None and col is not None and row < self.row_avg_index:
+                        self._ensure_item(row, col).setText(str(val))
                 self.by_target[ms.target].readings = list(ms.readings)
 
         # Reset position capture
@@ -219,8 +216,9 @@ class MeasuresTab(QWidget):
         self.current_phase_up = True
         self.current_col = 0
         self.waiting_zero = True
+        self._hl_last = None
 
-        # Recalcul des moyennes
+        # Recalcul des moyennes + highlight initial
         self._recompute_means()
         self._update_status()
 
@@ -235,7 +233,7 @@ class MeasuresTab(QWidget):
                     return []
         return []
 
-    # ---------- COM ----------
+    # ------------- COM -------------
     def _refresh_ports(self):
         ports = list_serial_ports()
         self.combo_port.clear()
@@ -275,7 +273,7 @@ class MeasuresTab(QWidget):
         self.btn_disconnect.setEnabled(False)
         self.btn_connect.setEnabled(True)
 
-    # ---------- Campagne ----------
+    # ------------- Campagne -------------
     def _start_campaign(self):
         if not self._conn.is_open():
             QMessageBox.information(self, "Série", "Connecte d’abord le dispositif (port série).")
@@ -306,15 +304,16 @@ class MeasuresTab(QWidget):
         self.current_phase_up = True
         self.current_col = 0
         self.waiting_zero = True
+        self._hl_last = None
         self._push_series_to_store()
         self._recompute_means()
         self._update_status()
 
-    # ---------- Logger ----------
+    # ------------- Logger -------------
     def _clear_log(self):
         self.log_view.clear()
 
-    # ---------- Réception série ----------
+    # ------------- Réception série -------------
     def _on_line_from_serial(self, raw: str, value: float | None):
         QTimer.singleShot(0, lambda: self._append_line(raw, value))
 
@@ -327,12 +326,16 @@ class MeasuresTab(QWidget):
 
         # Démarrage de cycle : exiger ~0 sur la première colonne de la phase montante
         if self.waiting_zero:
-            if abs(value) <= self.ZERO_TOL and self.current_phase_up and self.current_col == 0:
+            if self.current_phase_up and self.current_col == 0 and abs(value) <= self.ZERO_TOL:
                 self._write_current_cell(value)
                 self.waiting_zero = False
-                self._advance_after_write()
-            # sinon on ignore jusqu'à réception de ~0
-            self._update_status()
+                finished = self._advance_after_write()
+                if finished:
+                    self._stop_campaign()
+                self._update_status()
+            else:
+                # on ignore tant que ~0 pas reçu
+                self._update_status()
             return
 
         # En régime normal : écrire la valeur dans la cellule attendue
@@ -342,34 +345,34 @@ class MeasuresTab(QWidget):
             self._stop_campaign()
         self._update_status()
 
-    # ---------- Table & Store ----------
+    # ------------- Table & Store -------------
     def _row_for_state(self, cycle: int, up: bool) -> int:
         # lignes : (cycle-1)*2 + (0 si up else 1)
         return (cycle - 1) * 2 + (0 if up else 1)
 
-    def _row_for_col_index(self, col_index: int) -> Optional[int]:
-        """
-        Convertit l'indice "col" vu comme progression globale (0..2*cycles-1, 2 colonnes par cycle)
-        en index de ligne. Utile pour recharger des readings linéarisés.
-        """
-        # Ici, on considère que 'col_index' encode l'ordre 1↑,1↓,2↑,2↓, etc.
-        cycle = (col_index // 2) + 1
-        up = (col_index % 2 == 0)
-        if 1 <= cycle <= self.cycles:
-            return self._row_for_state(cycle, up)
-        return None
+    def _col_for_target(self, target: float) -> Optional[int]:
+        try:
+            return self.targets.index(target)
+        except ValueError:
+            return None
+
+    def _ensure_item(self, row: int, col: int) -> QTableWidgetItem:
+        it = self.table.item(row, col)
+        if it is None:
+            it = QTableWidgetItem("")
+            self.table.setItem(row, col, it)
+        return it
 
     def _write_current_cell(self, value: float):
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
         col = self.current_col
-        # Ne pas écraser si déjà rempli (au cas où)
-        item = self.table.item(row, col)
-        if item is None or not item.text():
-            self.table.setItem(row, col, QTableWidgetItem(str(value)))
+        # Ne pas écraser si déjà rempli
+        it = self.table.item(row, col)
+        if it is None or not it.text():
+            self._ensure_item(row, col).setText(str(value))
             # Mettre à jour by_target[target].readings (ordre 1↑,1↓,2↑,2↓,...)
             target = self.targets[col]
             readings = self.by_target[target].readings
-            # position canonique = (current_cycle-1)*2 + (0 si up else 1)
             pos = (self.current_cycle - 1) * 2 + (0 if self.current_phase_up else 1)
             while len(readings) <= pos:
                 readings.append(None)
@@ -396,9 +399,9 @@ class MeasuresTab(QWidget):
                     except ValueError:
                         pass
             mean_txt = "" if not vals else f"{sum(vals)/len(vals):.6f}"
-            self.table.setItem(self.row_avg_index, c, QTableWidgetItem(mean_txt))
+            self._ensure_item(self.row_avg_index, c).setText(mean_txt)
 
-    # ---------- Avancement ----------
+    # ------------- Avancement & Highlight -------------
     def _advance_after_write(self) -> bool:
         """
         Avance à la prochaine cellule (respecte le motif 0..max puis max..0).
@@ -414,7 +417,6 @@ class MeasuresTab(QWidget):
             else:
                 # Passer au descendant, on reste sur la dernière colonne
                 self.current_phase_up = False
-                # next write sera sur la même colonne (max)
                 return False
         else:
             # Descendant
@@ -433,9 +435,47 @@ class MeasuresTab(QWidget):
                     # Fin de campagne
                     return True
 
+    def _clear_highlight(self):
+        if self._hl_last is None:
+            return
+        r, c = self._hl_last
+        it = self.table.item(r, c)
+        if it:
+            it.setBackground(QBrush())  # reset
+        self._hl_last = None
+
+    def _highlight_current_cell(self):
+        # Déterminer la cellule attendue
+        if self.table.rowCount() == 0 or self.table.columnCount() == 0:
+            self._clear_highlight()
+            return
+
+        if not self.campaign_running:
+            self._clear_highlight()
+            return
+
+        if self.waiting_zero:
+            # on attend le 0 en début de cycle montant
+            row = self._row_for_state(self.current_cycle, True)
+            col = 0
+        else:
+            row = self._row_for_state(self.current_cycle, self.current_phase_up)
+            col = self.current_col
+
+        # sécurité pour ne pas toucher la ligne moyenne
+        if row >= self.row_avg_index:
+            self._clear_highlight()
+            return
+
+        self._clear_highlight()
+        it = self._ensure_item(row, col)
+        it.setBackground(QBrush(QColor(255, 249, 196)))  # jaune doux
+        self._hl_last = (row, col)
+
     def _update_status(self):
         if not self.campaign_running:
             self.lbl_next.setText("Prochaine cible : — (campagne arrêtée)")
+            self._highlight_current_cell()
             return
         arrow = "↑" if self.current_phase_up else "↓"
         target = self.targets[self.current_col] if self.targets else 0.0
@@ -443,8 +483,9 @@ class MeasuresTab(QWidget):
             self.lbl_next.setText(f"Prochaine cible : 0  (Cycle {self.current_cycle}/{self.cycles}, {arrow})")
         else:
             self.lbl_next.setText(f"Prochaine cible : {target}  (Cycle {self.current_cycle}/{self.cycles}, {arrow})")
+        self._highlight_current_cell()
 
-    # ---------- Sauvegarde ----------
+    # ------------- Sauvegarde -------------
     def _save_session(self):
         if not session_store.can_save():
             QMessageBox.warning(self, "Impossible", "Aucune mesure dans la session — enregistrement interdit.")
@@ -455,13 +496,13 @@ class MeasuresTab(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Erreur", f"Échec de l’enregistrement :\n{e}")
 
-    # ---------- Réactions session ----------
+    # ------------- Réactions session -------------
     def _on_session_changed(self, _s):
         # Si comparateur / nb cycles changent : reconstruire
         self._rebuild_from_session()
         # On ne démarre pas la campagne automatiquement
 
-    # ---------- Nettoyage ----------
+    # ------------- Nettoyage -------------
     def deleteLater(self):
         try:
             self._stop_campaign()
