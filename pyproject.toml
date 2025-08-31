@@ -8,13 +8,13 @@ version = "0.1.0"
 description = "EtaComp2K25 — application d'étalonnage de comparateurs (UI PySide6)"
 requires-python = ">=3.10"
 readme = "README.md"
-license = {text = "MIT"}
-authors = [{name = "Xavier Maquet"}]
+license = { text = "MIT" }
+authors = [{ name = "Xavier Maquet" }]
 dependencies = [
   "PySide6>=6.7",
   "pydantic>=2.8",
   "numpy>=2.0",
-  "matplotlib>=3.8"
+  "matplotlib>=3.8",
   "pyserial>=3.5"
 ]
 
@@ -22,7 +22,7 @@ dependencies = [
 etacomp = "etacomp.app:run"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
