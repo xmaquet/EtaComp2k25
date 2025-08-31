@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Optional, Tuple
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QPushButton,
@@ -202,12 +202,13 @@ class MeasuresTab(QWidget):
         self.by_target = {t: MeasureSeries(target=t, readings=[]) for t in self.targets}
         for ms in s.series:
             if ms.target in self.by_target:
-                # Remplir ligne/col depuis readings (ordre 1↑,1↓,2↑,2↓,…)
                 for pos, val in enumerate(ms.readings):
                     row = self._row_for_state((pos // 2) + 1, pos % 2 == 0)
                     col = self._col_for_target(ms.target)
                     if row is not None and col is not None and row < self.row_avg_index:
                         self._ensure_item(row, col).setText(str(val))
+                        # colorer en vert les cellules déjà remplies (rechargement)
+                        self._color_filled_cell(row, col, self.targets[col], float(val))
                 self.by_target[ms.target].readings = list(ms.readings)
 
         # Reset position capture
@@ -278,7 +279,6 @@ class MeasuresTab(QWidget):
         if not self._conn.is_open():
             QMessageBox.information(self, "Série", "Connecte d’abord le dispositif (port série).")
             return
-        # Reconstruire selon session (au cas où comparateur / cycles ont changé)
         self._rebuild_from_session()
         self.campaign_running = True
         self.btn_start.setEnabled(False)
@@ -292,13 +292,11 @@ class MeasuresTab(QWidget):
         self._update_status()
 
     def _clear_all(self):
-        # Efface toutes les mesures (garde cibles/structure)
-        for r in range(self.table.rowCount() - 1):  # ne touche pas la ligne "Moyenne"
+        for r in range(self.table.rowCount() - 1):
             for c in range(self.table.columnCount()):
                 self.table.setItem(r, c, QTableWidgetItem(""))
         for t in self.by_target.values():
             t.readings.clear()
-        # Reset position
         self.campaign_running = False
         self.current_cycle = 1
         self.current_phase_up = True
@@ -318,13 +316,12 @@ class MeasuresTab(QWidget):
         QTimer.singleShot(0, lambda: self._append_line(raw, value))
 
     def _append_line(self, raw: str, value: float | None):
-        # log brut
         self.log_view.append(raw)
 
         if not self.campaign_running or value is None:
             return
 
-        # Démarrage de cycle : exiger ~0 sur la première colonne de la phase montante
+        # Démarrage de cycle : exiger ~0 au début
         if self.waiting_zero:
             if self.current_phase_up and self.current_col == 0 and abs(value) <= self.ZERO_TOL:
                 self._write_current_cell(value)
@@ -334,11 +331,10 @@ class MeasuresTab(QWidget):
                     self._stop_campaign()
                 self._update_status()
             else:
-                # on ignore tant que ~0 pas reçu
                 self._update_status()
             return
 
-        # En régime normal : écrire la valeur dans la cellule attendue
+        # Écriture normale
         self._write_current_cell(value)
         finished = self._advance_after_write()
         if finished:
@@ -347,7 +343,6 @@ class MeasuresTab(QWidget):
 
     # ------------- Table & Store -------------
     def _row_for_state(self, cycle: int, up: bool) -> int:
-        # lignes : (cycle-1)*2 + (0 si up else 1)
         return (cycle - 1) * 2 + (0 if up else 1)
 
     def _col_for_target(self, target: float) -> Optional[int]:
@@ -363,21 +358,28 @@ class MeasuresTab(QWidget):
             self.table.setItem(row, col, it)
         return it
 
+    def _color_filled_cell(self, row: int, col: int, target: float, measured: float):
+        """Colore en vert et fixe une infobulle avec écart."""
+        it = self._ensure_item(row, col)
+        it.setBackground(QBrush(QColor(212, 237, 218)))  # vert doux
+        delta = measured - target
+        it.setToolTip(f"Cible: {target}\nMesuré: {measured}\nÉcart (mesuré - cible): {delta:+.6f}")
+
     def _write_current_cell(self, value: float):
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
         col = self.current_col
-        # Ne pas écraser si déjà rempli
         it = self.table.item(row, col)
         if it is None or not it.text():
             self._ensure_item(row, col).setText(str(value))
-            # Mettre à jour by_target[target].readings (ordre 1↑,1↓,2↑,2↓,...)
+            # Colorer + tooltip d’écart
+            self._color_filled_cell(row, col, self.targets[col], float(value))
+            # Mettre à jour by_target[target].readings
             target = self.targets[col]
             readings = self.by_target[target].readings
             pos = (self.current_cycle - 1) * 2 + (0 if self.current_phase_up else 1)
             while len(readings) <= pos:
                 readings.append(None)
             readings[pos] = value
-            # Nettoyer None de fin
             while readings and readings[-1] is None:
                 readings.pop()
             self._push_series_to_store()
@@ -388,10 +390,9 @@ class MeasuresTab(QWidget):
         session_store.set_series(ordered)
 
     def _recompute_means(self):
-        # Par colonne : moyenne des valeurs (toutes lignes de mesures, on ignore vides)
         for c in range(self.table.columnCount()):
             vals = []
-            for r in range(self.table.rowCount() - 1):  # ignorer ligne "Moyenne"
+            for r in range(self.table.rowCount() - 1):
                 it = self.table.item(r, c)
                 if it and it.text():
                     try:
@@ -403,73 +404,55 @@ class MeasuresTab(QWidget):
 
     # ------------- Avancement & Highlight -------------
     def _advance_after_write(self) -> bool:
-        """
-        Avance à la prochaine cellule (respecte le motif 0..max puis max..0).
-        Retourne True si toute la campagne est terminée.
-        """
         last_col = self.table.columnCount() - 1
 
         if self.current_phase_up:
-            # Montant
             if self.current_col < last_col:
                 self.current_col += 1
                 return False
             else:
-                # Passer au descendant, on reste sur la dernière colonne
                 self.current_phase_up = False
                 return False
         else:
-            # Descendant
             if self.current_col > 0:
                 self.current_col -= 1
                 return False
             else:
-                # Fin du cycle (on termine sur 0)
                 if self.current_cycle < self.cycles:
                     self.current_cycle += 1
                     self.current_phase_up = True
                     self.current_col = 0
-                    self.waiting_zero = True  # nouveau cycle => exiger 0
+                    self.waiting_zero = True
                     return False
                 else:
-                    # Fin de campagne
                     return True
 
     def _clear_highlight(self):
-        if self._hl_last is None:
+        if not self._hl_last:
             return
         r, c = self._hl_last
         it = self.table.item(r, c)
         if it:
-            it.setBackground(QBrush())  # reset
+            it.setBackground(QBrush())  # reset (le vert reste seulement sur les cellules remplies)
         self._hl_last = None
 
     def _highlight_current_cell(self):
-        # Déterminer la cellule attendue
         if self.table.rowCount() == 0 or self.table.columnCount() == 0:
             self._clear_highlight()
             return
-
         if not self.campaign_running:
             self._clear_highlight()
             return
-
         if self.waiting_zero:
-            # on attend le 0 en début de cycle montant
-            row = self._row_for_state(self.current_cycle, True)
-            col = 0
+            row = self._row_for_state(self.current_cycle, True); col = 0
         else:
             row = self._row_for_state(self.current_cycle, self.current_phase_up)
             col = self.current_col
-
-        # sécurité pour ne pas toucher la ligne moyenne
         if row >= self.row_avg_index:
-            self._clear_highlight()
-            return
-
+            self._clear_highlight(); return
         self._clear_highlight()
         it = self._ensure_item(row, col)
-        it.setBackground(QBrush(QColor(255, 249, 196)))  # jaune doux
+        it.setBackground(QBrush(QColor(255, 249, 196)))  # jaune doux pour la prochaine à prendre
         self._hl_last = (row, col)
 
     def _update_status(self):
@@ -479,10 +462,10 @@ class MeasuresTab(QWidget):
             return
         arrow = "↑" if self.current_phase_up else "↓"
         target = self.targets[self.current_col] if self.targets else 0.0
-        if self.waiting_zero:
-            self.lbl_next.setText(f"Prochaine cible : 0  (Cycle {self.current_cycle}/{self.cycles}, {arrow})")
-        else:
-            self.lbl_next.setText(f"Prochaine cible : {target}  (Cycle {self.current_cycle}/{self.cycles}, {arrow})")
+        self.lbl_next.setText(
+            ("Prochaine cible : 0 " if self.waiting_zero else f"Prochaine cible : {target} ")
+            + f"(Cycle {self.current_cycle}/{self.cycles}, {arrow})"
+        )
         self._highlight_current_cell()
 
     # ------------- Sauvegarde -------------
@@ -498,9 +481,7 @@ class MeasuresTab(QWidget):
 
     # ------------- Réactions session -------------
     def _on_session_changed(self, _s):
-        # Si comparateur / nb cycles changent : reconstruire
         self._rebuild_from_session()
-        # On ne démarre pas la campagne automatiquement
 
     # ------------- Nettoyage -------------
     def deleteLater(self):

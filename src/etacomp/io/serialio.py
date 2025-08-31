@@ -8,67 +8,84 @@ from typing import Optional, Callable
 import serial
 from serial.tools import list_ports
 
-
-# regex qui attrape le premier nombre (accepte , comme séparateur décimal)
+# Capture le premier nombre; accepte la virgule comme décimal
 FLOAT_PATTERN = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 
-
 def list_serial_ports() -> list[str]:
-    """Retourne les noms de ports série disponibles (ex: COM3, COM7)."""
-    ports = []
-    for p in list_ports.comports():
-        ports.append(p.device)
-    return ports
-
+    return [p.device for p in list_ports.comports()]
 
 class SerialConnection:
-    """Wrapper simple autour de pyserial.Serial."""
+    """Wrapper pyserial avec ouverture robuste (Arduino-friendly)."""
     def __init__(self):
         self._ser: Optional[serial.Serial] = None
 
-    def open(self, port: str, baudrate: int = 115200, timeout: float = 0.2):
-        """Ouvre la connexion série sur le port demandé."""
+    def open(self, port: str, baudrate: int = 4800, timeout: float = 0.05):
+        # timeout court pour boucler souvent
         self.close()
-        self._ser = serial.Serial(port=port, baudrate=baudrate, timeout=timeout)
+        self._ser = serial.Serial(
+            port=port,
+            baudrate=baudrate,
+            timeout=timeout,
+            bytesize=serial.EIGHTBITS,
+            parity=serial.PARITY_NONE,
+            stopbits=serial.STOPBITS_ONE,
+            xonxoff=False,
+            rtscts=False,
+            dsrdtr=False,
+        )
+        # Certains Arduino se réinitialisent; on stabilise la ligne série
+        try:
+            # Toggle DTR/RTS pour réveiller certains adaptateurs
+            self._ser.setDTR(True)
+            self._ser.setRTS(True)
+        except Exception:
+            pass
+
+        time.sleep(1.0)  # laisse le temps au reboot
+        try:
+            self._ser.reset_input_buffer()
+            self._ser.reset_output_buffer()
+        except Exception:
+            pass
 
     def is_open(self) -> bool:
         return self._ser is not None and self._ser.is_open
 
     def close(self):
-        """Ferme la connexion proprement."""
         try:
             if self._ser and self._ser.is_open:
                 self._ser.close()
         finally:
             self._ser = None
 
-    def readline(self) -> Optional[str]:
-        """Lit une ligne (str) ou None si rien reçu."""
+    def read_chunk(self) -> Optional[bytes]:
+        """Lit les octets disponibles sans s'arrêter sur la fin de ligne (non bloquant)."""
         if not self.is_open():
             return None
         try:
-            raw = self._ser.readline()
-            if not raw:
-                return None
-            return raw.decode(errors="ignore").strip()
+            n = self._ser.in_waiting  # octets dispo
+            if n:
+                return self._ser.read(n)
+            # sinon, lit 1 octet (timeout court) pour garder la boucle en vie
+            b = self._ser.read(1)
+            return b if b else None
         except Exception:
             return None
 
 
 class SerialReaderThread:
     """
-    Thread qui lit en continu sur une SerialConnection et appelle un callback
-    avec chaque ligne brute reçue + une valeur numérique optionnelle extraite.
+    Lit en continu et assemble les lignes par CR/LF.
+    Appelle on_line(raw_text, value_float_or_None) à chaque ligne complète.
     """
-
     def __init__(self, conn: SerialConnection, on_line: Callable[[str, Optional[float]], None]):
         self._conn = conn
         self._on_line = on_line
         self._stop = threading.Event()
         self._th: Optional[threading.Thread] = None
+        self._buf = bytearray()
 
     def start(self):
-        """Démarre le thread de lecture."""
         self._stop.clear()
         if self._th and self._th.is_alive():
             return
@@ -76,14 +93,45 @@ class SerialReaderThread:
         self._th.start()
 
     def stop(self):
-        """Arrête le thread."""
         self._stop.set()
         if self._th:
             self._th.join(timeout=1.0)
         self._th = None
 
+    def _emit_lines_from_buffer(self):
+        """
+        Découpe _buf sur \r ou \n (gère \r, \n, \r\n) et émet les lignes trouvées.
+        Conserve l’éventuel fragment final non terminé.
+        """
+        if not self._buf:
+            return
+        # Remplace CRLF par LF pour simplifier, puis traite CR restant
+        data = self._buf.replace(b"\r\n", b"\n")
+        parts = []
+        start = 0
+        for i, b in enumerate(data):
+            if b in (0x0A, 0x0D):  # LF ou CR
+                if i > start:
+                    parts.append(data[start:i])
+                start = i + 1
+        # Fragment final (pas encore terminé par CR/LF)
+        remainder = data[start:] if start < len(data) else b""
+        # Émet les lignes
+        for chunk in parts:
+            try:
+                text = chunk.decode(errors="ignore").strip()
+            except Exception:
+                text = ""
+            if text:
+                val = self._parse_float(text)
+                try:
+                    self._on_line(text, val)
+                except Exception:
+                    pass
+        # Réassigne le buffer au reste non terminé
+        self._buf = bytearray(remainder)
+
     def _parse_float(self, text: str) -> Optional[float]:
-        """Tente d’extraire un float de la ligne brute."""
         m = FLOAT_PATTERN.search(text)
         if not m:
             return None
@@ -95,13 +143,11 @@ class SerialReaderThread:
 
     def _run(self):
         while not self._stop.is_set():
-            line = self._conn.readline()
-            if line is None:
+            chunk = self._conn.read_chunk()
+            if chunk:
+                self._buf.extend(chunk)
+                # Essaie d’extraire des lignes à chaque arrivée de données
+                self._emit_lines_from_buffer()
+            else:
+                # petite pause pour éviter 100% CPU
                 time.sleep(0.01)
-                continue
-            val = self._parse_float(line)
-            try:
-                self._on_line(line, val)
-            except Exception:
-                # on ignore les erreurs du callback
-                pass
