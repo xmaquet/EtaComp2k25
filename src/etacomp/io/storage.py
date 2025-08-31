@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from pathlib import Path
 import json
-from typing import Type, TypeVar, List, Optional, Iterable
+from typing import Type, TypeVar, List, Optional
 
 from ..config.paths import get_data_dir
 from ..models.comparator import Comparator
@@ -9,6 +11,7 @@ from ..models.session import Session
 T = TypeVar("T", Comparator, Session)
 
 
+# ---------- helpers génériques ----------
 def _subdir_path(subdir: str) -> Path:
     p = get_data_dir() / subdir
     p.mkdir(parents=True, exist_ok=True)
@@ -49,7 +52,8 @@ def list_comparators() -> List[Comparator]:
 
 
 def save_comparator(c: Comparator) -> Path:
-    return save_model(c, COMPARATORS_DIR, c.filename)
+    base = c.reference.strip().replace(" ", "_")
+    return save_model(c, COMPARATORS_DIR, f"{base}.json")
 
 
 def delete_comparator_by_reference(reference: str) -> bool:
@@ -62,7 +66,6 @@ def delete_comparator_by_reference(reference: str) -> bool:
 
 
 def upsert_comparator(c: Comparator) -> Path:
-    """Ajoute ou remplace un comparateur."""
     return save_comparator(c)
 
 
@@ -70,8 +73,24 @@ def upsert_comparator(c: Comparator) -> Path:
 SESSIONS_DIR = "sessions"
 
 
-def save_session(s: Session, filename: Optional[str] = None) -> Path:
-    if filename is None:
-        base = s.operator.strip().replace(" ", "_")
-        filename = f"{base}_{s.date.strftime('%Y%m%d_%H%M%S')}.json"
-    return save_model(s, SESSIONS_DIR, filename)
+def _default_session_filename(s: Session) -> str:
+    who = (s.operator or "op").strip().replace(" ", "_")
+    dt = s.date.strftime("%Y%m%d_%H%M%S")
+    return f"{who}_{dt}.json"
+
+
+def list_sessions() -> List[Path]:
+    d = _subdir_path(SESSIONS_DIR)
+    return sorted(d.glob("*.json"), reverse=True)
+
+
+def save_session_file(s: Session, filename: Optional[str] = None) -> Path:
+    if not s.has_measures():
+        raise RuntimeError("La session ne contient aucune mesure.")
+    name = filename or _default_session_filename(s)
+    return save_model(s, SESSIONS_DIR, name)
+
+
+def load_session_file(path: Path) -> Session:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return Session.model_validate(data)
