@@ -8,19 +8,17 @@ from typing import Optional, Callable
 import serial
 from serial.tools import list_ports
 
-# Capture le premier nombre; accepte la virgule comme décimal
 FLOAT_PATTERN = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 
 def list_serial_ports() -> list[str]:
     return [p.device for p in list_ports.comports()]
 
 class SerialConnection:
-    """Wrapper pyserial avec ouverture robuste (Arduino-friendly)."""
+    """Wrapper pyserial robuste (Windows/Arduino-friendly)."""
     def __init__(self):
         self._ser: Optional[serial.Serial] = None
 
     def open(self, port: str, baudrate: int = 4800, timeout: float = 0.05):
-        # timeout court pour boucler souvent
         self.close()
         self._ser = serial.Serial(
             port=port,
@@ -33,15 +31,12 @@ class SerialConnection:
             rtscts=False,
             dsrdtr=False,
         )
-        # Certains Arduino se réinitialisent; on stabilise la ligne série
         try:
-            # Toggle DTR/RTS pour réveiller certains adaptateurs
             self._ser.setDTR(True)
             self._ser.setRTS(True)
         except Exception:
             pass
-
-        time.sleep(1.0)  # laisse le temps au reboot
+        time.sleep(1.0)
         try:
             self._ser.reset_input_buffer()
             self._ser.reset_output_buffer()
@@ -59,14 +54,12 @@ class SerialConnection:
             self._ser = None
 
     def read_chunk(self) -> Optional[bytes]:
-        """Lit les octets disponibles sans s'arrêter sur la fin de ligne (non bloquant)."""
         if not self.is_open():
             return None
         try:
-            n = self._ser.in_waiting  # octets dispo
+            n = self._ser.in_waiting
             if n:
                 return self._ser.read(n)
-            # sinon, lit 1 octet (timeout court) pour garder la boucle en vie
             b = self._ser.read(1)
             return b if b else None
         except Exception:
@@ -75,12 +68,22 @@ class SerialConnection:
 
 class SerialReaderThread:
     """
-    Lit en continu et assemble les lignes par CR/LF.
-    Appelle on_line(raw_text, value_float_or_None) à chaque ligne complète.
+    Assemble des lignes sur CR/LF et appelle:
+      - on_line(raw, value) pour chaque ligne,
+      - on_debug(msg) pour logs,
+      - on_error(msg) pour erreurs.
     """
-    def __init__(self, conn: SerialConnection, on_line: Callable[[str, Optional[float]], None]):
+    def __init__(
+        self,
+        conn: SerialConnection,
+        on_line: Callable[[str, Optional[float]], None],
+        on_debug: Optional[Callable[[str], None]] = None,
+        on_error: Optional[Callable[[str], None]] = None,
+    ):
         self._conn = conn
         self._on_line = on_line
+        self._on_debug = on_debug
+        self._on_error = on_error
         self._stop = threading.Event()
         self._th: Optional[threading.Thread] = None
         self._buf = bytearray()
@@ -91,44 +94,53 @@ class SerialReaderThread:
             return
         self._th = threading.Thread(target=self._run, daemon=True)
         self._th.start()
+        self._dbg("SerialReaderThread started")
 
     def stop(self):
         self._stop.set()
         if self._th:
             self._th.join(timeout=1.0)
         self._th = None
+        self._dbg("SerialReaderThread stopped")
+
+    def _dbg(self, msg: str):
+        if self._on_debug:
+            try:
+                self._on_debug(msg)
+            except Exception:
+                pass
+
+    def _err(self, msg: str):
+        if self._on_error:
+            try:
+                self._on_error(msg)
+            except Exception:
+                pass
 
     def _emit_lines_from_buffer(self):
-        """
-        Découpe _buf sur \r ou \n (gère \r, \n, \r\n) et émet les lignes trouvées.
-        Conserve l’éventuel fragment final non terminé.
-        """
         if not self._buf:
             return
-        # Remplace CRLF par LF pour simplifier, puis traite CR restant
         data = self._buf.replace(b"\r\n", b"\n")
         parts = []
         start = 0
         for i, b in enumerate(data):
-            if b in (0x0A, 0x0D):  # LF ou CR
+            if b in (0x0A, 0x0D):
                 if i > start:
                     parts.append(data[start:i])
                 start = i + 1
-        # Fragment final (pas encore terminé par CR/LF)
         remainder = data[start:] if start < len(data) else b""
-        # Émet les lignes
         for chunk in parts:
             try:
                 text = chunk.decode(errors="ignore").strip()
-            except Exception:
+            except Exception as e:
+                self._err(f"decode error: {e!r}")
                 text = ""
             if text:
                 val = self._parse_float(text)
                 try:
                     self._on_line(text, val)
-                except Exception:
-                    pass
-        # Réassigne le buffer au reste non terminé
+                except Exception as e:
+                    self._err(f"on_line callback error: {e!r}")
         self._buf = bytearray(remainder)
 
     def _parse_float(self, text: str) -> Optional[float]:
@@ -142,12 +154,13 @@ class SerialReaderThread:
             return None
 
     def _run(self):
-        while not self._stop.is_set():
-            chunk = self._conn.read_chunk()
-            if chunk:
-                self._buf.extend(chunk)
-                # Essaie d’extraire des lignes à chaque arrivée de données
-                self._emit_lines_from_buffer()
-            else:
-                # petite pause pour éviter 100% CPU
-                time.sleep(0.01)
+        try:
+            while not self._stop.is_set():
+                chunk = self._conn.read_chunk()
+                if chunk:
+                    self._buf.extend(chunk)
+                    self._emit_lines_from_buffer()
+                else:
+                    time.sleep(0.01)
+        except Exception as e:
+            self._err(f"serial thread crash: {e!r}")

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import time
 from typing import List, Dict, Optional, Tuple
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, QCoreApplication
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QPushButton,
@@ -86,9 +87,12 @@ class MeasuresTab(QWidget):
         self.btn_clear = QPushButton("Effacer toutes les mesures")
         self.btn_clear.setStyleSheet(BTN_DANGER_CSS)
         self.btn_clear.setToolTip("Effacer toutes les mesures du tableau.")
+        self.btn_probe = QPushButton("Test 3 s")
+        self.btn_probe.setToolTip("Lire le port pendant 3 secondes et afficher ce qui arrive (diagnostic).")
         topbar = QHBoxLayout()
         topbar.addWidget(self.btn_start)
         topbar.addWidget(self.btn_stop)
+        topbar.addWidget(self.btn_probe)
         topbar.addStretch()
         topbar.addWidget(self.btn_clear)
         f1.addRow("Statut", self.lbl_next)
@@ -108,8 +112,8 @@ class MeasuresTab(QWidget):
         log_bar = QHBoxLayout()
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(120)
-        self.log_view.setToolTip("Affiche toutes les lignes brutes reçues depuis le port COM.")
+        self.log_view.setMaximumHeight(140)
+        self.log_view.setToolTip("Affiche toutes les lignes brutes et les messages de debug/erreur du port COM.")
         self.btn_clear_log = QPushButton("Effacer le log")
         self.btn_clear_log.setToolTip("Effacer le contenu du log série.")
         log_bar.addStretch()
@@ -160,8 +164,16 @@ class MeasuresTab(QWidget):
         self.btn_clear.clicked.connect(self._clear_all)
         self.btn_clear_log.clicked.connect(self._clear_log)
         self.btn_save_session.clicked.connect(self._save_session)
+        self.btn_probe.clicked.connect(self._probe_3s)
         session_store.session_changed.connect(self._on_session_changed)
         session_store.measures_updated.connect(self._on_session_changed)
+
+    # ------------- helpers log -------------
+    def _log_debug(self, msg: str):
+        self.log_view.append(f"[DBG] {msg}")
+
+    def _log_error(self, msg: str):
+        self.log_view.append(f"[ERR] {msg}")
 
     # ------------- session -> table -------------
     def _rebuild_from_session(self):
@@ -174,7 +186,6 @@ class MeasuresTab(QWidget):
             self.targets = [0.0] + sorted([t for t in self.targets if abs(t) > self.ZERO_TOL])
         else:
             # assurer 0 en tête
-            t0 = [t for t in self.targets if abs(t) <= self.ZERO_TOL]
             others = [t for t in self.targets if abs(t) > self.ZERO_TOL]
             self.targets = [0.0] + sorted(others)
 
@@ -207,7 +218,6 @@ class MeasuresTab(QWidget):
                     col = self._col_for_target(ms.target)
                     if row is not None and col is not None and row < self.row_avg_index:
                         self._ensure_item(row, col).setText(str(val))
-                        # colorer en vert les cellules déjà remplies (rechargement)
                         self._color_filled_cell(row, col, self.targets[col], float(val))
                 self.by_target[ms.target].readings = list(ms.readings)
 
@@ -259,7 +269,13 @@ class MeasuresTab(QWidget):
             QMessageBox.warning(self, "Connexion série", f"Échec de connexion sur {port} @ {baud} :\n{e}")
             return
 
-        self._reader = SerialReaderThread(self._conn, self._on_line_from_serial)
+        # Thread série avec callbacks debug/erreur vers le logger
+        self._reader = SerialReaderThread(
+            self._conn,
+            self._on_line_from_serial,
+            on_debug=lambda m: QTimer.singleShot(0, lambda: self._log_debug(m)),
+            on_error=lambda m: QTimer.singleShot(0, lambda: self._log_error(m)),
+        )
         self._reader.start()
         self.btn_connect.setEnabled(False)
         self.btn_disconnect.setEnabled(True)
@@ -307,15 +323,46 @@ class MeasuresTab(QWidget):
         self._recompute_means()
         self._update_status()
 
-    # ------------- Logger -------------
+    # ------------- Logger & Probe -------------
     def _clear_log(self):
         self.log_view.clear()
 
-    # ------------- Réception série -------------
+    def _probe_3s(self):
+        """Lecture synchrone pendant 3s pour diag direct (contourne le thread)."""
+        if not self._conn.is_open():
+            QMessageBox.information(self, "Test 3 s", "Connecte d’abord le port série.")
+            return
+        self._log_debug("=== PROBE 3s start ===")
+        end = time.time() + 3.0
+        got = 0
+        buf = bytearray()
+        while time.time() < end:
+            chunk = self._conn.read_chunk()
+            if chunk:
+                got += len(chunk)
+                buf.extend(chunk.replace(b"\r\n", b"\n"))
+                # Tentative extraction lignes
+                while b"\n" in buf or b"\r" in buf:
+                    buf[:] = buf.replace(b"\r\n", b"\n")
+                    if b"\n" in buf:
+                        line, _, rest = bytes(buf).partition(b"\n")
+                    else:
+                        line, _, rest = bytes(buf).partition(b"\r")
+                    buf[:] = rest
+                    text = line.decode(errors="ignore").strip()
+                    if text:
+                        self.log_view.append(text)
+            else:
+                QCoreApplication.processEvents()
+                time.sleep(0.01)
+        self._log_debug(f"=== PROBE 3s end (octets: {got}) ===")
+
+    # ------------- Réception série (thread) -------------
     def _on_line_from_serial(self, raw: str, value: float | None):
         QTimer.singleShot(0, lambda: self._append_line(raw, value))
 
     def _append_line(self, raw: str, value: float | None):
+        # log brut de chaque ligne
         self.log_view.append(raw)
 
         if not self.campaign_running or value is None:
@@ -364,6 +411,17 @@ class MeasuresTab(QWidget):
         it.setBackground(QBrush(QColor(212, 237, 218)))  # vert doux
         delta = measured - target
         it.setToolTip(f"Cible: {target}\nMesuré: {measured}\nÉcart (mesuré - cible): {delta:+.6f}")
+
+    def _restore_cell_background(self, row: int, col: int):
+        """Restaure le fond après suppression du highlight:
+           - vert si la cellule est remplie
+           - transparent sinon
+        """
+        it = self._ensure_item(row, col)
+        if it.text():
+            it.setBackground(QBrush(QColor(212, 237, 218)))  # vert
+        else:
+            it.setBackground(QBrush())  # reset
 
     def _write_current_cell(self, value: float):
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
@@ -431,9 +489,7 @@ class MeasuresTab(QWidget):
         if not self._hl_last:
             return
         r, c = self._hl_last
-        it = self.table.item(r, c)
-        if it:
-            it.setBackground(QBrush())  # reset (le vert reste seulement sur les cellules remplies)
+        self._restore_cell_background(r, c)
         self._hl_last = None
 
     def _highlight_current_cell(self):
@@ -452,7 +508,7 @@ class MeasuresTab(QWidget):
             self._clear_highlight(); return
         self._clear_highlight()
         it = self._ensure_item(row, col)
-        it.setBackground(QBrush(QColor(255, 249, 196)))  # jaune doux pour la prochaine à prendre
+        it.setBackground(QBrush(QColor(255, 249, 196)))  # jaune doux = prochaine mesure
         self._hl_last = (row, col)
 
     def _update_status(self):
