@@ -115,6 +115,16 @@ class MeasuresTab(QWidget):
         serial_manager.debug.connect(lambda m: self.log_view.append(f"[DBG] {m}"))
         serial_manager.error.connect(lambda m: self.log_view.append(f"[ERR] {m}"))
 
+    # ------------- helpers -------------
+    def _safe_send_config(self):
+        """Retourne (mode, trig, eol_bytes) en tolérant une ancienne version du SerialManager."""
+        try:
+            mode, trig, _ = serial_manager.get_send_config()
+            eol = serial_manager.eol_bytes()
+            return mode, trig, eol
+        except Exception:
+            return "Manuel", "", None
+
     # ------------- session -> table -------------
     def _rebuild_from_session(self):
         s = session_store.current
@@ -191,9 +201,9 @@ class MeasuresTab(QWidget):
         self._update_status()
 
         # Si mode 'À la demande', envoie la première commande
-        mode, trig, _ = serial_manager.get_send_config()
+        mode, trig, eol = self._safe_send_config()
         if mode == "À la demande":
-            serial_manager.send_text(trig, serial_manager.eol_bytes())
+            serial_manager.send_text(trig, eol)
 
     def _stop_campaign(self):
         self.campaign_running = False
@@ -258,8 +268,9 @@ class MeasuresTab(QWidget):
 
         if not self.campaign_running or value is None:
             # mode 'À la demande' : renvoyer une commande pour forcer la suivante
-            if self.campaign_running and serial_manager.get_send_config()[0] == "À la demande":
-                serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
+            mode, trig, eol = self._safe_send_config()
+            if self.campaign_running and mode == "À la demande":
+                serial_manager.send_text(trig, eol)
             return
 
         # Démarrage de cycle : exiger ~0 au début
@@ -271,12 +282,14 @@ class MeasuresTab(QWidget):
                 if finished:
                     self._stop_campaign()
                 else:
-                    if serial_manager.get_send_config()[0] == "À la demande":
-                        serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
+                    mode, trig, eol = self._safe_send_config()
+                    if mode == "À la demande":
+                        serial_manager.send_text(trig, eol)
                 self._update_status()
             else:
-                if serial_manager.get_send_config()[0] == "À la demande":
-                    serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
+                mode, trig, eol = self._safe_send_config()
+                if mode == "À la demande":
+                    serial_manager.send_text(trig, eol)
                 self._update_status()
             return
 
@@ -286,8 +299,9 @@ class MeasuresTab(QWidget):
         if finished:
             self._stop_campaign()
         else:
-            if serial_manager.get_send_config()[0] == "À la demande":
-                serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
+            mode, trig, eol = self._safe_send_config()
+            if mode == "À la demande":
+                serial_manager.send_text(trig, eol)
         self._update_status()
 
     # ------------- Table & Store -------------

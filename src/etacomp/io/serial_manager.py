@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import Optional, Callable
+
+from typing import Optional, Tuple
 from PySide6.QtCore import QObject, Signal
 
 from .serialio import SerialConnection, SerialReaderThread
+
 
 class SerialManager(QObject):
     connected_changed = Signal(bool)
@@ -14,24 +16,58 @@ class SerialManager(QObject):
         super().__init__()
         self._conn = SerialConnection()
         self._reader: Optional[SerialReaderThread] = None
-        # config ASCII
+
+        # Parsing ASCII
         self._regex_pattern = r"^\s*[+-]?\d+(?:[.,]\d+)?\s*$"
         self._decimal_comma = False
 
-    # ---- config ----
-    def set_ascii_config(self, regex_pattern: str, decimal_comma: bool):
+        # Envoi (profil TESA ASCII)
+        self._send_mode = "Manuel"   # 'Manuel' | 'À la demande'
+        self._trigger_text = "M"
+        self._eol_mode = "CR"        # 'Aucun' | 'CR' | 'LF' | 'CRLF'
+
+    # --------- CONFIG PARSE ASCII ---------
+    def set_ascii_config(self, *, regex_pattern: str, decimal_comma: bool):
         self._regex_pattern = regex_pattern or r"^\s*[+-]?\d+(?:[.,]\d+)?\s*$"
         self._decimal_comma = bool(decimal_comma)
-        # si on est déjà en train de lire, redémarrer le thread pour appliquer la config
         if self.is_open():
             self._stop_reader()
             self._start_reader()
 
-    # ---- état ----
+    def get_ascii_config(self) -> tuple[str, bool]:
+        return self._regex_pattern, self._decimal_comma
+
+    # --------- CONFIG ENVOI (TESA ASCII) ---------
+    def set_send_config(self, *, mode: str, trigger_text: str, eol_mode: str):
+        self._send_mode = "Manuel" if mode.startswith("Manuel") else "À la demande"
+        self._trigger_text = trigger_text or ""
+        if eol_mode.startswith("CRLF"):
+            self._eol_mode = "CRLF"
+        elif eol_mode.startswith("CR "):
+            self._eol_mode = "CR"
+        elif eol_mode.startswith("LF "):
+            self._eol_mode = "LF"
+        else:
+            self._eol_mode = "Aucun"
+
+    def get_send_config(self) -> Tuple[str, str, str]:
+        """Retourne (mode, trigger_text, eol_mode)."""
+        return self._send_mode, self._trigger_text, self._eol_mode
+
+    def eol_bytes(self) -> bytes | None:
+        if self._eol_mode == "CRLF":
+            return b"\r\n"
+        if self._eol_mode == "CR":
+            return b"\r"
+        if self._eol_mode == "LF":
+            return b"\n"
+        return None
+
+    # --------- ÉTAT ---------
     def is_open(self) -> bool:
         return self._conn.is_open()
 
-    # ---- open/close ----
+    # --------- OPEN/CLOSE ---------
     def open(self, port: str, baudrate: int):
         if self._conn.is_open():
             return
@@ -44,15 +80,15 @@ class SerialManager(QObject):
         self._conn.close()
         self.connected_changed.emit(False)
 
-    # ---- envoi (utile si “à la demande”) ----
+    # --------- ENVOI ---------
     def send_text(self, text: str, eol: bytes | None = None):
         self._conn.write_text(text, append_eol=eol)
 
-    # ---- diag (pour bouton “Test 3 s”) ----
+    # --------- DIAG ---------
     def read_chunk(self) -> bytes | None:
         return self._conn.read_chunk()
 
-    # ---- interne ----
+    # --------- INTERNE ---------
     def _start_reader(self):
         self._reader = SerialReaderThread(
             self._conn,
@@ -73,5 +109,5 @@ class SerialManager(QObject):
         self.line_received.emit(raw, value)
 
 
-# singleton
+# Singleton global
 serial_manager = SerialManager()
