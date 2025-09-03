@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import binascii
 import time
 from typing import List, Dict, Optional, Tuple
 
@@ -8,13 +7,12 @@ from PySide6.QtCore import QTimer, QCoreApplication
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QPushButton,
-    QMessageBox, QComboBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem,
-    QLineEdit, QCheckBox
+    QMessageBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem
 )
 
 from ...models.session import MeasureSeries
 from ...state.session_store import session_store
-from ...io.serialio import list_serial_ports, SerialConnection, SerialReaderThread
+from ...io.serial_manager import serial_manager
 from ...io.storage import list_comparators
 
 
@@ -39,97 +37,14 @@ class MeasuresTab(QWidget):
         super().__init__()
         root = QVBoxLayout(self)
 
-        # ===== Connexion série =====
-        g_conn = QGroupBox("Connexion au dispositif étalon (port série)")
-        f0 = QFormLayout(g_conn)
-
-        self.combo_port = QComboBox()
-        self.combo_port.setToolTip("Port série du dispositif étalon (ex: COM3).")
-        self.btn_refresh_ports = QPushButton("↻")
-        self.btn_refresh_ports.setToolTip("Rafraîchir la liste des ports COM détectés.")
-        pbar = QHBoxLayout()
-        pbar.addWidget(self.combo_port)
-        pbar.addWidget(self.btn_refresh_ports)
-
-        self.combo_baud = QComboBox()
-        self.combo_baud.addItems(["4800", "9600", "19200", "38400", "57600", "115200"])
-        self.combo_baud.setCurrentText("4800")
-        self.combo_baud.setToolTip("Vitesse de communication en bauds (par défaut 4800).")
-
-        self.btn_connect = QPushButton("Connecter")
-        self.btn_connect.setStyleSheet(BTN_PRIMARY_CSS)
-        self.btn_connect.setToolTip("Ouvrir la connexion série et démarrer l’écoute.")
-        self.btn_disconnect = QPushButton("Déconnecter")
-        self.btn_disconnect.setStyleSheet(BTN_DANGER_CSS)
-        self.btn_disconnect.setToolTip("Fermer la connexion série.")
-        self.btn_disconnect.setEnabled(False)
-
-        f0.addRow("Port", QWidget())
-        f0.itemAt(f0.rowCount() - 1, QFormLayout.FieldRole).widget().setLayout(pbar)
-        f0.addRow("Baudrate", self.combo_baud)
-        hb = QHBoxLayout()
-        hb.addWidget(self.btn_connect)
-        hb.addWidget(self.btn_disconnect)
-        hb.addStretch()
-        f0.addRow("", QWidget())
-        f0.itemAt(f0.rowCount() - 1, QFormLayout.FieldRole).widget().setLayout(hb)
-
-        # ===== Profil TESA ASCII =====
-        g_ascii = QGroupBox("Profil TESA ASCII")
-        fA = QFormLayout(g_ascii)
-
-        self.combo_mode = QComboBox()
-        self.combo_mode.addItems(["Continu", "À la demande"])
-        self.combo_mode.setToolTip("Mode lecture : l’instrument émet en continu ou sur commande.")
-
-        self.input_trigger = QLineEdit()
-        self.input_trigger.setPlaceholderText("Commande à envoyer (ex: 'M' ou vide)")
-        self.input_trigger.setToolTip("Commande ASCII à envoyer pour demander une mesure (si 'À la demande').")
-
-        self.combo_eol = QComboBox()
-        self.combo_eol.addItems(["Aucun", "CR (\\r)", "LF (\\n)", "CRLF (\\r\\n)"])
-        self.combo_eol.setCurrentText("CR (\\r)")
-        self.combo_eol.setToolTip("Fin de ligne ajoutée à la commande envoyée.")
-
-        self.combo_decimal = QComboBox()
-        self.combo_decimal.addItems(["Point (.)", "Virgule (,)"])
-        self.combo_decimal.setToolTip("Décimale attendue dans les nombres reçus.")
-
-        self.input_regex = QLineEdit(r"[-+]?\d+(?:[.,]\d+)?")
-        self.input_regex.setToolTip("Regex pour extraire la valeur numérique dans la ligne reçue.")
-
-        self.btn_send_cmd = QPushButton("Envoyer commande")
-        self.btn_send_cmd.setStyleSheet(BTN_PRIMARY_CSS)
-        self.btn_send_cmd.setToolTip("Envoie la commande de trigger (si mode À la demande).")
-
-        self.chk_hex = QCheckBox("Afficher HEX")
-        self.chk_hex.setToolTip("Affiche aussi les octets reçus en hex dans le logger.")
-
-        fA.addRow("Mode", self.combo_mode)
-        fA.addRow("Commande", self.input_trigger)
-        fA.addRow("EOL à l’envoi", self.combo_eol)
-        fA.addRow("Décimale", self.combo_decimal)
-        fA.addRow("Regex", self.input_regex)
-        fA.addRow("Diagnostic", self.chk_hex)
-        fA.addRow("", self.btn_send_cmd)
-
         # ===== Déroulé / statut =====
         g_cfg = QGroupBox("Déroulé de la campagne")
         f1 = QFormLayout(g_cfg)
         self.lbl_next = QLabel("Prochaine cible : —")
-        self.lbl_next.setToolTip("Indique la cible à afficher sur le comparateur pour la prochaine mesure.")
-        self.btn_start = QPushButton("Démarrer")
-        self.btn_start.setStyleSheet(BTN_PRIMARY_CSS)
-        self.btn_start.setToolTip("Démarrer la campagne de mesures (montant puis descendant).")
-        self.btn_stop = QPushButton("Arrêter")
-        self.btn_stop.setStyleSheet(BTN_DANGER_CSS)
-        self.btn_stop.setToolTip("Arrêter la campagne en cours.")
-        self.btn_stop.setEnabled(False)
-        self.btn_clear = QPushButton("Effacer toutes les mesures")
-        self.btn_clear.setStyleSheet(BTN_DANGER_CSS)
-        self.btn_clear.setToolTip("Effacer toutes les mesures du tableau.")
+        self.btn_start = QPushButton("Démarrer"); self.btn_start.setStyleSheet(BTN_PRIMARY_CSS)
+        self.btn_stop = QPushButton("Arrêter"); self.btn_stop.setStyleSheet(BTN_DANGER_CSS); self.btn_stop.setEnabled(False)
+        self.btn_clear = QPushButton("Effacer toutes les mesures"); self.btn_clear.setStyleSheet(BTN_DANGER_CSS)
         self.btn_probe = QPushButton("Test 3 s")
-        self.btn_probe.setToolTip("Lire le port pendant 3 secondes et afficher ce qui arrive (diagnostic).")
         topbar = QHBoxLayout()
         topbar.addWidget(self.btn_start)
         topbar.addWidget(self.btn_stop)
@@ -144,35 +59,24 @@ class MeasuresTab(QWidget):
         vtab = QVBoxLayout(g_table)
         self.table = QTableWidget(0, 0)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setToolTip("Tableau des mesures captées automatiquement depuis le dispositif étalon.")
         vtab.addWidget(self.table)
 
         # ===== Logger brut =====
         g_log = QGroupBox("Flux série (lignes brutes)")
         v3 = QVBoxLayout(g_log)
         log_bar = QHBoxLayout()
-        self.log_view = QTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(160)
-        self.log_view.setToolTip("Affiche toutes les lignes brutes et les messages de debug/erreur du port COM.")
+        self.log_view = QTextEdit(); self.log_view.setReadOnly(True); self.log_view.setMaximumHeight(160)
         self.btn_clear_log = QPushButton("Effacer le log")
-        self.btn_clear_log.setToolTip("Effacer le contenu du log série.")
-        log_bar.addStretch()
-        log_bar.addWidget(self.btn_clear_log)
+        log_bar.addStretch(); log_bar.addWidget(self.btn_clear_log)
         v3.addWidget(self.log_view)
         v3.addLayout(log_bar)
 
         # ===== Actions =====
         actions = QHBoxLayout()
-        self.btn_save_session = QPushButton("Enregistrer la session…")
-        self.btn_save_session.setStyleSheet(BTN_SUCCESS_CSS)
-        self.btn_save_session.setToolTip("Enregistre la session courante (nécessite des mesures valides).")
-        actions.addStretch()
-        actions.addWidget(self.btn_save_session)
+        self.btn_save_session = QPushButton("Enregistrer la session…"); self.btn_save_session.setStyleSheet(BTN_SUCCESS_CSS)
+        actions.addStretch(); actions.addWidget(self.btn_save_session)
 
         # Assemble
-        root.addWidget(g_conn)
-        root.addWidget(g_ascii)
         root.addWidget(g_cfg)
         root.addWidget(g_table)
         root.addWidget(g_log)
@@ -180,8 +84,6 @@ class MeasuresTab(QWidget):
         root.addStretch()
 
         # ===== état interne =====
-        self._conn = SerialConnection()
-        self._reader: Optional[SerialReaderThread] = None
         self.targets: List[float] = []
         self.cycles: int = 0
         self.row_avg_index: int = -1
@@ -194,48 +96,39 @@ class MeasuresTab(QWidget):
         self._hl_last: Optional[Tuple[int, int]] = None  # (row, col) dernière cellule surlignée
 
         # init
-        self._refresh_ports()
         self._rebuild_from_session()
 
-        # connexions
-        self.btn_refresh_ports.clicked.connect(self._refresh_ports)
-        self.btn_connect.clicked.connect(self._do_connect)
-        self.btn_disconnect.clicked.connect(self._do_disconnect)
-
-        self.btn_send_cmd.clicked.connect(self._send_trigger)
-        self.chk_hex.stateChanged.connect(lambda _: None)  # noop, juste un toggle pour l’affichage
-
+        # connexions UI
         self.btn_start.clicked.connect(self._start_campaign)
         self.btn_stop.clicked.connect(self._stop_campaign)
         self.btn_clear.clicked.connect(self._clear_all)
         self.btn_clear_log.clicked.connect(self._clear_log)
         self.btn_save_session.clicked.connect(self._save_session)
         self.btn_probe.clicked.connect(self._probe_3s)
+
+        # session store
         session_store.session_changed.connect(self._on_session_changed)
         session_store.measures_updated.connect(self._on_session_changed)
 
-    # ---------- helpers log ----------
-    def _log_debug(self, msg: str):
-        self.log_view.append(f"[DBG] {msg}")
+        # serial manager
+        serial_manager.line_received.connect(lambda raw, val: self._on_line_from_serial(raw, val))
+        serial_manager.debug.connect(lambda m: self.log_view.append(f"[DBG] {m}"))
+        serial_manager.error.connect(lambda m: self.log_view.append(f"[ERR] {m}"))
 
-    def _log_error(self, msg: str):
-        self.log_view.append(f"[ERR] {msg}")
-
-    def _append_logger_hex(self, raw_bytes: bytes):
-        if self.chk_hex.isChecked() and raw_bytes:
-            hx = binascii.hexlify(raw_bytes).decode()
-            self.log_view.append(f"[HEX] {hx}")
-
-    # ---------- session -> table ----------
+    # ------------- session -> table -------------
     def _rebuild_from_session(self):
         s = session_store.current
+
+        # Colonnes (cibles) depuis le comparateur
         self.targets = self._targets_from_comparator(s.comparator_ref)
+        # Forcer 0 en première colonne
         if 0.0 not in self.targets:
             self.targets = [0.0] + sorted([t for t in self.targets if abs(t) > self.ZERO_TOL])
         else:
             others = [t for t in self.targets if abs(t) > self.ZERO_TOL]
             self.targets = [0.0] + sorted(others)
 
+        # Lignes : 2 par itération + 1 ligne "Moyenne"
         self.cycles = max(1, s.series_count or 1)
         rows = self.cycles * 2 + 1
         cols = len(self.targets)
@@ -252,6 +145,7 @@ class MeasuresTab(QWidget):
         self.row_avg_index = rows - 1
         self.table.setVerticalHeaderItem(self.row_avg_index, QTableWidgetItem("Moyenne"))
 
+        # Réinjecter éventuelles mesures
         self.by_target = {t: MeasureSeries(target=t, readings=[]) for t in self.targets}
         for ms in s.series:
             if ms.target in self.by_target:
@@ -263,6 +157,7 @@ class MeasuresTab(QWidget):
                         self._color_filled_cell(row, col, self.targets[col], float(val))
                 self.by_target[ms.target].readings = list(ms.readings)
 
+        # Reset capture
         self.campaign_running = False
         self.current_cycle = 1
         self.current_phase_up = True
@@ -284,84 +179,10 @@ class MeasuresTab(QWidget):
                     return []
         return []
 
-    # ---------- COM ----------
-    def _refresh_ports(self):
-        ports = list_serial_ports()
-        self.combo_port.clear()
-        if not ports:
-            self.combo_port.addItem("(aucun port détecté)")
-            self.btn_connect.setEnabled(False)
-        else:
-            self.combo_port.addItems(ports)
-            self.btn_connect.setEnabled(True)
-
-    def _current_ascii_config(self):
-        # config parse
-        regex = self.input_regex.text().strip() or r"[-+]?\d+(?:[.,]\d+)?"
-        decimal_comma = (self.combo_decimal.currentText().startswith("Virgule"))
-        return dict(regex_pattern=regex, decimal_comma=decimal_comma)
-
-    def _do_connect(self):
-        if self._conn.is_open():
-            return
-        port = self.combo_port.currentText()
-        if not port or "(aucun" in port:
-            QMessageBox.information(self, "Série", "Aucun port valide sélectionné.")
-            return
-        baud = int(self.combo_baud.currentText())
-        try:
-            self._conn.open(port=port, baudrate=baud)
-        except Exception as e:
-            QMessageBox.warning(self, "Connexion série", f"Échec de connexion sur {port} @ {baud} :\n{e}")
-            return
-
-        cfg = self._current_ascii_config()
-        self._reader = SerialReaderThread(
-            self._conn,
-            self._on_line_from_serial,
-            on_debug=lambda m: QTimer.singleShot(0, lambda: self._log_debug(m)),
-            on_error=lambda m: QTimer.singleShot(0, lambda: self._log_error(m)),
-            regex_pattern=cfg["regex_pattern"],
-            decimal_comma=cfg["decimal_comma"],
-        )
-        self._reader.start()
-        self.btn_connect.setEnabled(False)
-        self.btn_disconnect.setEnabled(True)
-        QMessageBox.information(self, "Série", f"Connecté à {port} @ {baud}.")
-
-    def _do_disconnect(self):
-        self._stop_campaign()
-        if self._reader:
-            self._reader.stop()
-            self._reader = None
-        self._conn.close()
-        self.btn_disconnect.setEnabled(False)
-        self.btn_connect.setEnabled(True)
-
-    # ---------- Envoi commande (mode À la demande) ----------
-    def _eol_bytes(self) -> Optional[bytes]:
-        m = self.combo_eol.currentText()
-        if m.startswith("CRLF"): return b"\r\n"
-        if m.startswith("CR "):  return b"\r"
-        if m.startswith("LF "):  return b"\n"
-        return None  # Aucun
-
-    def _send_trigger(self):
-        if not self._conn.is_open():
-            QMessageBox.information(self, "Commande", "Connecte d’abord le port série.")
-            return
-        if self.combo_mode.currentText() != "À la demande":
-            QMessageBox.information(self, "Commande", "Le mode n’est pas 'À la demande'.")
-            return
-        cmd = self.input_trigger.text()
-        eol = self._eol_bytes()
-        self._conn.write_text(cmd, append_eol=eol)
-        self._log_debug(f"TX: {repr(cmd)} EOL={repr(eol)}")
-
-    # ---------- Campagne ----------
+    # ------------- Campagne -------------
     def _start_campaign(self):
-        if not self._conn.is_open():
-            QMessageBox.information(self, "Série", "Connecte d’abord le dispositif (port série).")
+        if not serial_manager.is_open():
+            QMessageBox.information(self, "Série", "Connecte d’abord le dispositif dans l’onglet Session.")
             return
         self._rebuild_from_session()
         self.campaign_running = True
@@ -369,9 +190,10 @@ class MeasuresTab(QWidget):
         self.btn_stop.setEnabled(True)
         self._update_status()
 
-        # Si mode 'À la demande', envoyer la 1ère commande d’emblée
-        if self.combo_mode.currentText() == "À la demande":
-            self._send_trigger()
+        # Si mode 'À la demande', envoie la première commande
+        mode, trig, _ = serial_manager.get_send_config()
+        if mode == "À la demande":
+            serial_manager.send_text(trig, serial_manager.eol_bytes())
 
     def _stop_campaign(self):
         self.campaign_running = False
@@ -395,24 +217,22 @@ class MeasuresTab(QWidget):
         self._recompute_means()
         self._update_status()
 
-    # ---------- Logger & Probe ----------
+    # ------------- Logger & Probe -------------
     def _clear_log(self):
         self.log_view.clear()
 
     def _probe_3s(self):
-        if not self._conn.is_open():
-            QMessageBox.information(self, "Test 3 s", "Connecte d’abord le port série.")
+        if not serial_manager.is_open():
+            QMessageBox.information(self, "Test 3 s", "Connecte d’abord le port série dans l’onglet Session.")
             return
-        self._log_debug("=== PROBE 3s start ===")
+        self.log_view.append("[DBG] === PROBE 3s start ===")
         end = time.time() + 3.0
         got = 0
         buf = bytearray()
         while time.time() < end:
-            chunk = self._conn.read_chunk()
+            chunk = serial_manager.read_chunk()
             if chunk:
                 got += len(chunk)
-                if self.chk_hex.isChecked():
-                    self._append_logger_hex(chunk)
                 buf.extend(chunk.replace(b"\r\n", b"\n"))
                 while b"\n" in buf or b"\r" in buf:
                     buf[:] = buf.replace(b"\r\n", b"\n")
@@ -427,20 +247,19 @@ class MeasuresTab(QWidget):
             else:
                 QCoreApplication.processEvents()
                 time.sleep(0.01)
-        self._log_debug(f"=== PROBE 3s end (octets: {got}) ===")
+        self.log_view.append(f"[DBG] === PROBE 3s end (octets: {got}) ===")
 
-    # ---------- Réception série (thread) ----------
+    # ------------- Réception série -------------
     def _on_line_from_serial(self, raw: str, value: float | None):
-        # NB: pas de chunk en param, donc pas d’HEX ici (uniquement dans _probe_3s)
         QTimer.singleShot(0, lambda: self._append_line(raw, value))
 
     def _append_line(self, raw: str, value: float | None):
         self.log_view.append(raw)
 
         if not self.campaign_running or value is None:
-            # Si mode 'À la demande', renvoyer une commande pour forcer la prochaine ligne
-            if self.campaign_running and self.combo_mode.currentText() == "À la demande":
-                self._send_trigger()
+            # mode 'À la demande' : renvoyer une commande pour forcer la suivante
+            if self.campaign_running and serial_manager.get_send_config()[0] == "À la demande":
+                serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
             return
 
         # Démarrage de cycle : exiger ~0 au début
@@ -452,13 +271,12 @@ class MeasuresTab(QWidget):
                 if finished:
                     self._stop_campaign()
                 else:
-                    if self.combo_mode.currentText() == "À la demande":
-                        self._send_trigger()
+                    if serial_manager.get_send_config()[0] == "À la demande":
+                        serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
                 self._update_status()
             else:
-                # on continue à attendre du 0 ; si mode demande → renvoyer commande
-                if self.combo_mode.currentText() == "À la demande":
-                    self._send_trigger()
+                if serial_manager.get_send_config()[0] == "À la demande":
+                    serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
                 self._update_status()
             return
 
@@ -468,11 +286,11 @@ class MeasuresTab(QWidget):
         if finished:
             self._stop_campaign()
         else:
-            if self.combo_mode.currentText() == "À la demande":
-                self._send_trigger()
+            if serial_manager.get_send_config()[0] == "À la demande":
+                serial_manager.send_text(serial_manager.get_send_config()[1], serial_manager.eol_bytes())
         self._update_status()
 
-    # ---------- Table & Store ----------
+    # ------------- Table & Store -------------
     def _row_for_state(self, cycle: int, up: bool) -> int:
         return (cycle - 1) * 2 + (0 if up else 1)
 
@@ -537,7 +355,7 @@ class MeasuresTab(QWidget):
             mean_txt = "" if not vals else f"{sum(vals)/len(vals):.6f}"
             self._ensure_item(self.row_avg_index, c).setText(mean_txt)
 
-    # ---------- Avancement & Highlight ----------
+    # ------------- Avancement & Highlight -------------
     def _advance_after_write(self) -> bool:
         last_col = self.table.columnCount() - 1
         if self.current_phase_up:
@@ -570,11 +388,9 @@ class MeasuresTab(QWidget):
 
     def _highlight_current_cell(self):
         if self.table.rowCount() == 0 or self.table.columnCount() == 0:
-            self._clear_highlight()
-            return
+            self._clear_highlight(); return
         if not self.campaign_running:
-            self._clear_highlight()
-            return
+            self._clear_highlight(); return
         if self.waiting_zero:
             row = self._row_for_state(self.current_cycle, True); col = 0
         else:
@@ -600,7 +416,7 @@ class MeasuresTab(QWidget):
         )
         self._highlight_current_cell()
 
-    # ---------- Sauvegarde ----------
+    # ------------- Sauvegarde -------------
     def _save_session(self):
         if not session_store.can_save():
             QMessageBox.warning(self, "Impossible", "Aucune mesure dans la session — enregistrement interdit.")
@@ -611,16 +427,13 @@ class MeasuresTab(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Erreur", f"Échec de l’enregistrement :\n{e}")
 
-    # ---------- Réactions session ----------
+    # ------------- Réactions session -------------
     def _on_session_changed(self, _s):
         self._rebuild_from_session()
 
-    # ---------- Nettoyage ----------
+    # ------------- Nettoyage -------------
     def deleteLater(self):
         try:
             self._stop_campaign()
-            if self._reader:
-                self._reader.stop()
-            self._conn.close()
         finally:
             super().deleteLater()
