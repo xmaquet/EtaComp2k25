@@ -8,13 +8,11 @@ from typing import Optional, Callable
 import serial
 from serial.tools import list_ports
 
-FLOAT_PATTERN = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
-
 def list_serial_ports() -> list[str]:
     return [p.device for p in list_ports.comports()]
 
 class SerialConnection:
-    """Wrapper pyserial robuste (Windows/Arduino-friendly)."""
+    """Wrapper pyserial robuste (Windows/Arduino/RS232-friendly)."""
     def __init__(self):
         self._ser: Optional[serial.Serial] = None
 
@@ -23,7 +21,7 @@ class SerialConnection:
         self._ser = serial.Serial(
             port=port,
             baudrate=baudrate,
-            timeout=timeout,
+            timeout=timeout,           # court = boucle réactive
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_NONE,
             stopbits=serial.STOPBITS_ONE,
@@ -32,10 +30,12 @@ class SerialConnection:
             dsrdtr=False,
         )
         try:
+            # certains adaptateurs aiment DTR/RTS actifs
             self._ser.setDTR(True)
             self._ser.setRTS(True)
         except Exception:
             pass
+        # Laisse le temps à un éventuel reboot (Arduino, afficheur)
         time.sleep(1.0)
         try:
             self._ser.reset_input_buffer()
@@ -65,13 +65,33 @@ class SerialConnection:
         except Exception:
             return None
 
+    def write_text(self, s: str, append_eol: Optional[bytes] = None):
+        if not self.is_open():
+            return
+        try:
+            data = s.encode()
+            if append_eol:
+                data += append_eol
+            self._ser.write(data)
+            self._ser.flush()
+        except Exception:
+            pass
+
+    def write_bytes(self, b: bytes):
+        if not self.is_open():
+            return
+        try:
+            self._ser.write(b)
+            self._ser.flush()
+        except Exception:
+            pass
+
 
 class SerialReaderThread:
     """
-    Assemble des lignes sur CR/LF et appelle:
-      - on_line(raw, value) pour chaque ligne,
-      - on_debug(msg) pour logs,
-      - on_error(msg) pour erreurs.
+    Lit en continu, assemble des lignes (CR/LF/CRLF), et parse selon config ASCII.
+    - on_line(raw_text, parsed_float_or_None)
+    - on_debug(msg), on_error(msg)
     """
     def __init__(
         self,
@@ -79,6 +99,9 @@ class SerialReaderThread:
         on_line: Callable[[str, Optional[float]], None],
         on_debug: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        *,
+        regex_pattern: str = r"[-+]?\d+(?:[.,]\d+)?",
+        decimal_comma: bool = False,
     ):
         self._conn = conn
         self._on_line = on_line
@@ -87,6 +110,9 @@ class SerialReaderThread:
         self._stop = threading.Event()
         self._th: Optional[threading.Thread] = None
         self._buf = bytearray()
+        # config ASCII
+        self._pattern = re.compile(regex_pattern)
+        self._decimal_comma = decimal_comma
 
     def start(self):
         self._stop.clear()
@@ -105,17 +131,13 @@ class SerialReaderThread:
 
     def _dbg(self, msg: str):
         if self._on_debug:
-            try:
-                self._on_debug(msg)
-            except Exception:
-                pass
+            try: self._on_debug(msg)
+            except Exception: pass
 
     def _err(self, msg: str):
         if self._on_error:
-            try:
-                self._on_error(msg)
-            except Exception:
-                pass
+            try: self._on_error(msg)
+            except Exception: pass
 
     def _emit_lines_from_buffer(self):
         if not self._buf:
@@ -144,10 +166,12 @@ class SerialReaderThread:
         self._buf = bytearray(remainder)
 
     def _parse_float(self, text: str) -> Optional[float]:
-        m = FLOAT_PATTERN.search(text)
+        m = self._pattern.search(text)
         if not m:
             return None
-        token = m.group(0).replace(",", ".")
+        token = m.group(0)
+        if self._decimal_comma:
+            token = token.replace(",", ".")
         try:
             return float(token)
         except ValueError:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 import time
 from typing import List, Dict, Optional, Tuple
 
@@ -7,7 +8,8 @@ from PySide6.QtCore import QTimer, QCoreApplication
 from PySide6.QtGui import QColor, QBrush
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QPushButton,
-    QMessageBox, QComboBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem
+    QMessageBox, QComboBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem,
+    QLineEdit, QCheckBox
 )
 
 from ...models.session import MeasureSeries
@@ -72,6 +74,45 @@ class MeasuresTab(QWidget):
         f0.addRow("", QWidget())
         f0.itemAt(f0.rowCount() - 1, QFormLayout.FieldRole).widget().setLayout(hb)
 
+        # ===== Profil TESA ASCII =====
+        g_ascii = QGroupBox("Profil TESA ASCII")
+        fA = QFormLayout(g_ascii)
+
+        self.combo_mode = QComboBox()
+        self.combo_mode.addItems(["Continu", "À la demande"])
+        self.combo_mode.setToolTip("Mode lecture : l’instrument émet en continu ou sur commande.")
+
+        self.input_trigger = QLineEdit()
+        self.input_trigger.setPlaceholderText("Commande à envoyer (ex: 'M' ou vide)")
+        self.input_trigger.setToolTip("Commande ASCII à envoyer pour demander une mesure (si 'À la demande').")
+
+        self.combo_eol = QComboBox()
+        self.combo_eol.addItems(["Aucun", "CR (\\r)", "LF (\\n)", "CRLF (\\r\\n)"])
+        self.combo_eol.setCurrentText("CR (\\r)")
+        self.combo_eol.setToolTip("Fin de ligne ajoutée à la commande envoyée.")
+
+        self.combo_decimal = QComboBox()
+        self.combo_decimal.addItems(["Point (.)", "Virgule (,)"])
+        self.combo_decimal.setToolTip("Décimale attendue dans les nombres reçus.")
+
+        self.input_regex = QLineEdit(r"[-+]?\d+(?:[.,]\d+)?")
+        self.input_regex.setToolTip("Regex pour extraire la valeur numérique dans la ligne reçue.")
+
+        self.btn_send_cmd = QPushButton("Envoyer commande")
+        self.btn_send_cmd.setStyleSheet(BTN_PRIMARY_CSS)
+        self.btn_send_cmd.setToolTip("Envoie la commande de trigger (si mode À la demande).")
+
+        self.chk_hex = QCheckBox("Afficher HEX")
+        self.chk_hex.setToolTip("Affiche aussi les octets reçus en hex dans le logger.")
+
+        fA.addRow("Mode", self.combo_mode)
+        fA.addRow("Commande", self.input_trigger)
+        fA.addRow("EOL à l’envoi", self.combo_eol)
+        fA.addRow("Décimale", self.combo_decimal)
+        fA.addRow("Regex", self.input_regex)
+        fA.addRow("Diagnostic", self.chk_hex)
+        fA.addRow("", self.btn_send_cmd)
+
         # ===== Déroulé / statut =====
         g_cfg = QGroupBox("Déroulé de la campagne")
         f1 = QFormLayout(g_cfg)
@@ -112,7 +153,7 @@ class MeasuresTab(QWidget):
         log_bar = QHBoxLayout()
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(140)
+        self.log_view.setMaximumHeight(160)
         self.log_view.setToolTip("Affiche toutes les lignes brutes et les messages de debug/erreur du port COM.")
         self.btn_clear_log = QPushButton("Effacer le log")
         self.btn_clear_log.setToolTip("Effacer le contenu du log série.")
@@ -131,6 +172,7 @@ class MeasuresTab(QWidget):
 
         # Assemble
         root.addWidget(g_conn)
+        root.addWidget(g_ascii)
         root.addWidget(g_cfg)
         root.addWidget(g_table)
         root.addWidget(g_log)
@@ -159,6 +201,10 @@ class MeasuresTab(QWidget):
         self.btn_refresh_ports.clicked.connect(self._refresh_ports)
         self.btn_connect.clicked.connect(self._do_connect)
         self.btn_disconnect.clicked.connect(self._do_disconnect)
+
+        self.btn_send_cmd.clicked.connect(self._send_trigger)
+        self.chk_hex.stateChanged.connect(lambda _: None)  # noop, juste un toggle pour l’affichage
+
         self.btn_start.clicked.connect(self._start_campaign)
         self.btn_stop.clicked.connect(self._stop_campaign)
         self.btn_clear.clicked.connect(self._clear_all)
@@ -168,28 +214,28 @@ class MeasuresTab(QWidget):
         session_store.session_changed.connect(self._on_session_changed)
         session_store.measures_updated.connect(self._on_session_changed)
 
-    # ------------- helpers log -------------
+    # ---------- helpers log ----------
     def _log_debug(self, msg: str):
         self.log_view.append(f"[DBG] {msg}")
 
     def _log_error(self, msg: str):
         self.log_view.append(f"[ERR] {msg}")
 
-    # ------------- session -> table -------------
+    def _append_logger_hex(self, raw_bytes: bytes):
+        if self.chk_hex.isChecked() and raw_bytes:
+            hx = binascii.hexlify(raw_bytes).decode()
+            self.log_view.append(f"[HEX] {hx}")
+
+    # ---------- session -> table ----------
     def _rebuild_from_session(self):
         s = session_store.current
-
-        # Colonnes (cibles) depuis le comparateur
         self.targets = self._targets_from_comparator(s.comparator_ref)
-        # Forcer 0 en première colonne
         if 0.0 not in self.targets:
             self.targets = [0.0] + sorted([t for t in self.targets if abs(t) > self.ZERO_TOL])
         else:
-            # assurer 0 en tête
             others = [t for t in self.targets if abs(t) > self.ZERO_TOL]
             self.targets = [0.0] + sorted(others)
 
-        # Lignes : 2 par itération + 1 ligne "Moyenne"
         self.cycles = max(1, s.series_count or 1)
         rows = self.cycles * 2 + 1
         cols = len(self.targets)
@@ -197,11 +243,8 @@ class MeasuresTab(QWidget):
         self.table.clear()
         self.table.setRowCount(rows)
         self.table.setColumnCount(cols)
-
-        # En-têtes colonnes (cibles)
         self.table.setHorizontalHeaderLabels([str(t) for t in self.targets])
 
-        # En-têtes lignes (itérations)
         r = 0
         for i in range(1, self.cycles + 1):
             self.table.setVerticalHeaderItem(r, QTableWidgetItem(f"{i}↑")); r += 1
@@ -209,7 +252,6 @@ class MeasuresTab(QWidget):
         self.row_avg_index = rows - 1
         self.table.setVerticalHeaderItem(self.row_avg_index, QTableWidgetItem("Moyenne"))
 
-        # by_target (réinjecter éventuelles mesures chargées)
         self.by_target = {t: MeasureSeries(target=t, readings=[]) for t in self.targets}
         for ms in s.series:
             if ms.target in self.by_target:
@@ -221,7 +263,6 @@ class MeasuresTab(QWidget):
                         self._color_filled_cell(row, col, self.targets[col], float(val))
                 self.by_target[ms.target].readings = list(ms.readings)
 
-        # Reset position capture
         self.campaign_running = False
         self.current_cycle = 1
         self.current_phase_up = True
@@ -229,7 +270,6 @@ class MeasuresTab(QWidget):
         self.waiting_zero = True
         self._hl_last = None
 
-        # Recalcul des moyennes + highlight initial
         self._recompute_means()
         self._update_status()
 
@@ -244,7 +284,7 @@ class MeasuresTab(QWidget):
                     return []
         return []
 
-    # ------------- COM -------------
+    # ---------- COM ----------
     def _refresh_ports(self):
         ports = list_serial_ports()
         self.combo_port.clear()
@@ -254,6 +294,12 @@ class MeasuresTab(QWidget):
         else:
             self.combo_port.addItems(ports)
             self.btn_connect.setEnabled(True)
+
+    def _current_ascii_config(self):
+        # config parse
+        regex = self.input_regex.text().strip() or r"[-+]?\d+(?:[.,]\d+)?"
+        decimal_comma = (self.combo_decimal.currentText().startswith("Virgule"))
+        return dict(regex_pattern=regex, decimal_comma=decimal_comma)
 
     def _do_connect(self):
         if self._conn.is_open():
@@ -269,12 +315,14 @@ class MeasuresTab(QWidget):
             QMessageBox.warning(self, "Connexion série", f"Échec de connexion sur {port} @ {baud} :\n{e}")
             return
 
-        # Thread série avec callbacks debug/erreur vers le logger
+        cfg = self._current_ascii_config()
         self._reader = SerialReaderThread(
             self._conn,
             self._on_line_from_serial,
             on_debug=lambda m: QTimer.singleShot(0, lambda: self._log_debug(m)),
             on_error=lambda m: QTimer.singleShot(0, lambda: self._log_error(m)),
+            regex_pattern=cfg["regex_pattern"],
+            decimal_comma=cfg["decimal_comma"],
         )
         self._reader.start()
         self.btn_connect.setEnabled(False)
@@ -290,7 +338,27 @@ class MeasuresTab(QWidget):
         self.btn_disconnect.setEnabled(False)
         self.btn_connect.setEnabled(True)
 
-    # ------------- Campagne -------------
+    # ---------- Envoi commande (mode À la demande) ----------
+    def _eol_bytes(self) -> Optional[bytes]:
+        m = self.combo_eol.currentText()
+        if m.startswith("CRLF"): return b"\r\n"
+        if m.startswith("CR "):  return b"\r"
+        if m.startswith("LF "):  return b"\n"
+        return None  # Aucun
+
+    def _send_trigger(self):
+        if not self._conn.is_open():
+            QMessageBox.information(self, "Commande", "Connecte d’abord le port série.")
+            return
+        if self.combo_mode.currentText() != "À la demande":
+            QMessageBox.information(self, "Commande", "Le mode n’est pas 'À la demande'.")
+            return
+        cmd = self.input_trigger.text()
+        eol = self._eol_bytes()
+        self._conn.write_text(cmd, append_eol=eol)
+        self._log_debug(f"TX: {repr(cmd)} EOL={repr(eol)}")
+
+    # ---------- Campagne ----------
     def _start_campaign(self):
         if not self._conn.is_open():
             QMessageBox.information(self, "Série", "Connecte d’abord le dispositif (port série).")
@@ -300,6 +368,10 @@ class MeasuresTab(QWidget):
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self._update_status()
+
+        # Si mode 'À la demande', envoyer la 1ère commande d’emblée
+        if self.combo_mode.currentText() == "À la demande":
+            self._send_trigger()
 
     def _stop_campaign(self):
         self.campaign_running = False
@@ -323,12 +395,11 @@ class MeasuresTab(QWidget):
         self._recompute_means()
         self._update_status()
 
-    # ------------- Logger & Probe -------------
+    # ---------- Logger & Probe ----------
     def _clear_log(self):
         self.log_view.clear()
 
     def _probe_3s(self):
-        """Lecture synchrone pendant 3s pour diag direct (contourne le thread)."""
         if not self._conn.is_open():
             QMessageBox.information(self, "Test 3 s", "Connecte d’abord le port série.")
             return
@@ -340,8 +411,9 @@ class MeasuresTab(QWidget):
             chunk = self._conn.read_chunk()
             if chunk:
                 got += len(chunk)
+                if self.chk_hex.isChecked():
+                    self._append_logger_hex(chunk)
                 buf.extend(chunk.replace(b"\r\n", b"\n"))
-                # Tentative extraction lignes
                 while b"\n" in buf or b"\r" in buf:
                     buf[:] = buf.replace(b"\r\n", b"\n")
                     if b"\n" in buf:
@@ -357,15 +429,18 @@ class MeasuresTab(QWidget):
                 time.sleep(0.01)
         self._log_debug(f"=== PROBE 3s end (octets: {got}) ===")
 
-    # ------------- Réception série (thread) -------------
+    # ---------- Réception série (thread) ----------
     def _on_line_from_serial(self, raw: str, value: float | None):
+        # NB: pas de chunk en param, donc pas d’HEX ici (uniquement dans _probe_3s)
         QTimer.singleShot(0, lambda: self._append_line(raw, value))
 
     def _append_line(self, raw: str, value: float | None):
-        # log brut de chaque ligne
         self.log_view.append(raw)
 
         if not self.campaign_running or value is None:
+            # Si mode 'À la demande', renvoyer une commande pour forcer la prochaine ligne
+            if self.campaign_running and self.combo_mode.currentText() == "À la demande":
+                self._send_trigger()
             return
 
         # Démarrage de cycle : exiger ~0 au début
@@ -376,8 +451,14 @@ class MeasuresTab(QWidget):
                 finished = self._advance_after_write()
                 if finished:
                     self._stop_campaign()
+                else:
+                    if self.combo_mode.currentText() == "À la demande":
+                        self._send_trigger()
                 self._update_status()
             else:
+                # on continue à attendre du 0 ; si mode demande → renvoyer commande
+                if self.combo_mode.currentText() == "À la demande":
+                    self._send_trigger()
                 self._update_status()
             return
 
@@ -386,9 +467,12 @@ class MeasuresTab(QWidget):
         finished = self._advance_after_write()
         if finished:
             self._stop_campaign()
+        else:
+            if self.combo_mode.currentText() == "À la demande":
+                self._send_trigger()
         self._update_status()
 
-    # ------------- Table & Store -------------
+    # ---------- Table & Store ----------
     def _row_for_state(self, cycle: int, up: bool) -> int:
         return (cycle - 1) * 2 + (0 if up else 1)
 
@@ -406,22 +490,17 @@ class MeasuresTab(QWidget):
         return it
 
     def _color_filled_cell(self, row: int, col: int, target: float, measured: float):
-        """Colore en vert et fixe une infobulle avec écart."""
         it = self._ensure_item(row, col)
         it.setBackground(QBrush(QColor(212, 237, 218)))  # vert doux
         delta = measured - target
         it.setToolTip(f"Cible: {target}\nMesuré: {measured}\nÉcart (mesuré - cible): {delta:+.6f}")
 
     def _restore_cell_background(self, row: int, col: int):
-        """Restaure le fond après suppression du highlight:
-           - vert si la cellule est remplie
-           - transparent sinon
-        """
         it = self._ensure_item(row, col)
         if it.text():
-            it.setBackground(QBrush(QColor(212, 237, 218)))  # vert
+            it.setBackground(QBrush(QColor(212, 237, 218)))
         else:
-            it.setBackground(QBrush())  # reset
+            it.setBackground(QBrush())
 
     def _write_current_cell(self, value: float):
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
@@ -429,9 +508,7 @@ class MeasuresTab(QWidget):
         it = self.table.item(row, col)
         if it is None or not it.text():
             self._ensure_item(row, col).setText(str(value))
-            # Colorer + tooltip d’écart
             self._color_filled_cell(row, col, self.targets[col], float(value))
-            # Mettre à jour by_target[target].readings
             target = self.targets[col]
             readings = self.by_target[target].readings
             pos = (self.current_cycle - 1) * 2 + (0 if self.current_phase_up else 1)
@@ -460,10 +537,9 @@ class MeasuresTab(QWidget):
             mean_txt = "" if not vals else f"{sum(vals)/len(vals):.6f}"
             self._ensure_item(self.row_avg_index, c).setText(mean_txt)
 
-    # ------------- Avancement & Highlight -------------
+    # ---------- Avancement & Highlight ----------
     def _advance_after_write(self) -> bool:
         last_col = self.table.columnCount() - 1
-
         if self.current_phase_up:
             if self.current_col < last_col:
                 self.current_col += 1
@@ -524,7 +600,7 @@ class MeasuresTab(QWidget):
         )
         self._highlight_current_cell()
 
-    # ------------- Sauvegarde -------------
+    # ---------- Sauvegarde ----------
     def _save_session(self):
         if not session_store.can_save():
             QMessageBox.warning(self, "Impossible", "Aucune mesure dans la session — enregistrement interdit.")
@@ -535,11 +611,11 @@ class MeasuresTab(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Erreur", f"Échec de l’enregistrement :\n{e}")
 
-    # ------------- Réactions session -------------
+    # ---------- Réactions session ----------
     def _on_session_changed(self, _s):
         self._rebuild_from_session()
 
-    # ------------- Nettoyage -------------
+    # ---------- Nettoyage ----------
     def deleteLater(self):
         try:
             self._stop_campaign()
