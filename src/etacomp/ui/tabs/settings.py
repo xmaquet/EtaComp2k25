@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QHBoxLayout,
     QLabel, QComboBox, QSpinBox, QCheckBox, QPushButton, QMessageBox, QApplication
@@ -13,6 +13,9 @@ from ...config.paths import get_data_dir
 
 
 class SettingsTab(QWidget):
+    # Signal émis quand l’utilisateur change le thème ("light" / "dark")
+    themeChanged = Signal(str)
+
     def __init__(self):
         super().__init__()
 
@@ -31,8 +34,6 @@ class SettingsTab(QWidget):
         self.theme_combo.currentTextChanged.connect(self.on_theme_changed)
 
         f1.addRow("Thème", self.theme_combo)
-
-        # (Placeholder futur : taille de police, contraste, etc.)
 
         # ====== Zone 2: Session (valeurs par défaut) ======
         g_session = QGroupBox("Session — valeurs par défaut")
@@ -69,13 +70,12 @@ class SettingsTab(QWidget):
         f3.addRow(self.chk_autosave)
         f3.addRow("Intervalle", self.spin_autosave)
 
-        # ====== Zone 4: Langue & régionalisation (placeholder) ======
+        # ====== Zone 4: Langue & régionalisation ======
         g_lang = QGroupBox("Langue & régionalisation")
         f4 = QFormLayout(g_lang)
 
         self.lang_combo = QComboBox()
         self.lang_combo.addItems(["(par défaut)", "fr", "en"])
-        # positionner sur la langue enregistrée si présente
         if self.prefs.language and self.prefs.language in ["fr", "en"]:
             self.lang_combo.setCurrentText(self.prefs.language)
         else:
@@ -114,9 +114,12 @@ class SettingsTab(QWidget):
 
     # ====== Slots ======
     def on_theme_changed(self, theme: str):
-        # Application immédiate
+        # Application immédiate au niveau application
         qss = load_theme_qss(theme)
         QApplication.instance().setStyleSheet(qss)
+
+        # Notifier la fenêtre principale (si elle écoute ce signal)
+        self.themeChanged.emit(theme)
 
     def on_save(self):
         # Enregistrer en JSON
@@ -149,5 +152,5 @@ class SettingsTab(QWidget):
         else:
             self.lang_combo.setCurrentText("(par défaut)")
 
-        # Réappliquer le thème courant
+        # Réappliquer le thème courant + notifier
         self.on_theme_changed(self.prefs.theme or "light")

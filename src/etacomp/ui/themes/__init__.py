@@ -1,9 +1,188 @@
-import importlib.resources as resources
+from __future__ import annotations
 
-def load_theme_qss(theme_name: str) -> str:
-    try:
-        fname = f"{theme_name}.qss"
-        with resources.files(__package__).joinpath(fname).open("r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return ""
+# Couleur d’accent (modifiable)
+ACCENT = "#0ea5b7"
+
+# QSS commun avec variables "placeholder" (VAR_*). Pas de f-string ici !
+BASE_QSS = """
+/* ====== Couleurs & bases globales ====== */
+QWidget {
+    color: VAR_FG;                 /* texte par défaut */
+    background: VAR_WINDOW_BG;     /* fond global */
+}
+QMainWindow, QDialog {
+    background: VAR_WINDOW_BG;
+}
+QTabWidget::pane {
+    border: 0;
+    background: VAR_WINDOW_BG;     /* fond sous les onglets */
+}
+
+/* Texte des contrôles courants */
+QLabel, QCheckBox, QRadioButton, QGroupBox {
+    color: VAR_FG;
+}
+QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
+    color: VAR_FG_DISABLED;
+}
+
+/* ====== Onglets ====== */
+QTabBar::tab {
+    padding: 8px 14px;
+    margin: 0 2px;
+    border: 1px solid transparent;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    background: VAR_TAB_INACTIVE_BG;
+    color: VAR_TAB_INACTIVE_FG;
+}
+/* Survol: garder un contraste net (thème-dépendant) */
+QTabBar::tab:hover {
+    background: VAR_TAB_HOVER_BG;
+    color: VAR_TAB_HOVER_FG;
+}
+/* Sélectionné: pastille + soulignement fort */
+QTabBar::tab:selected {
+    background: ACCENT;
+    color: white;
+    border: 1px solid ACCENT;
+    border-bottom: 3px solid #ffffff; /* soulignement visible */
+}
+/* Focus clavier sur un onglet non sélectionné: fine ligne d’indication */
+QTabBar::tab:!selected:focus {
+    outline: none;
+    border-bottom: 2px solid ACCENT;
+}
+
+/* ====== QGroupBox (titres de zones) ====== */
+QGroupBox {
+    border: 1px solid VAR_BORDER;
+    border-radius: 10px;
+    margin-top: 18px;
+    padding-top: 16px;
+    background: VAR_PANEL_BG;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 3px 10px;
+    background: ACCENT;
+    color: white;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    border-radius: 6px;
+}
+QGroupBox::title:hover {
+    background: #10b6ca;
+}
+
+/* ====== SectionHeader (widget optionnel) ====== */
+#SectionHeaderLabel {
+    font-size: 14pt;
+    font-weight: 800;
+    color: #ffffff;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: ACCENT;
+}
+#SectionHeaderLine {
+    min-height: 2px;
+    background: VAR_SEP;
+}
+
+/* ====== Entrées & boutons ====== */
+QPushButton {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid VAR_BORDER;
+    background: VAR_BTN_BG;
+    color: VAR_FG;
+}
+QPushButton:hover {
+    background: VAR_BTN_HOVER;
+}
+QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QTextEdit, QPlainTextEdit {
+    border: 1px solid VAR_BORDER;
+    border-radius: 6px;
+    padding: 4px 6px;
+    background: VAR_INPUT_BG;
+    color: VAR_FG;
+}
+
+/* ====== Tableaux / Listes ====== */
+QHeaderView::section {
+    background: VAR_PANEL_BG;
+    color: VAR_FG;
+    border: 1px solid VAR_BORDER;
+    padding: 4px 6px;
+}
+QTableView, QTreeView {
+    background: VAR_PANEL_BG;
+    color: VAR_FG;
+    gridline-color: VAR_BORDER;
+    alternate-background-color: VAR_ALT_ROW;
+}
+
+/* ====== Tooltips ====== */
+QToolTip {
+    background: VAR_PANEL_BG;
+    color: VAR_FG;
+    border: 1px solid VAR_BORDER;
+}
+"""
+
+def _fill_common(placeholders: dict[str, str]) -> str:
+    """Remplace ACCENT et les VAR_* dans BASE_QSS."""
+    qss = BASE_QSS.replace("ACCENT", ACCENT)
+    for k, v in placeholders.items():
+        qss = qss.replace(k, v)
+    return qss
+
+def _qss_dark() -> str:
+    return _fill_common({
+        "VAR_WINDOW_BG": "#1e1e1e",
+        "VAR_BORDER": "#3a3a3a",
+        "VAR_PANEL_BG": "#232323",
+        "VAR_SEP": "#404040",
+        "VAR_BTN_BG": "#2d2d2d",
+        "VAR_BTN_HOVER": "#383838",
+        "VAR_INPUT_BG": "#2a2a2a",
+        "VAR_FG": "#e6e6e6",
+        "VAR_FG_DISABLED": "#9a9a9a",
+        "VAR_ALT_ROW": "#1b1b1b",
+        "VAR_TAB_INACTIVE_BG": "#2b2b2b",
+        "VAR_TAB_INACTIVE_FG": "#c9c9c9",
+        "VAR_TAB_HOVER_BG": "#3a3a3a",
+        "VAR_TAB_HOVER_FG": "#ffffff",
+    })
+
+def _qss_light() -> str:
+    return _fill_common({
+        "VAR_WINDOW_BG": "#ffffff",
+        "VAR_BORDER": "#dadada",
+        "VAR_PANEL_BG": "#f6f6f6",
+        "VAR_SEP": "#d0d0d0",
+        "VAR_BTN_BG": "#ffffff",
+        "VAR_BTN_HOVER": "#f2f2f2",
+        "VAR_INPUT_BG": "#ffffff",
+        "VAR_FG": "#1f1f1f",
+        "VAR_FG_DISABLED": "#8a8a8a",
+        "VAR_ALT_ROW": "#fafafa",
+        "VAR_TAB_INACTIVE_BG": "#efefef",
+        "VAR_TAB_INACTIVE_FG": "#3a3a3a",
+        "VAR_TAB_HOVER_BG": "#f5f5f5",
+        "VAR_TAB_HOVER_FG": "#111111",
+    })
+
+def load_theme_qss(theme: str | None) -> str:
+    """Retourne le QSS complet selon le thème ('light' ou 'dark')."""
+    if (theme or "").lower() == "light":
+        return _qss_light()
+    return _qss_dark()
+
+def apply_theme(widget, theme: str | None):
+    """Applique le QSS sur un widget racine (ex: MainWindow)."""
+    widget.setStyleSheet(load_theme_qss(theme))
+
+__all__ = ["apply_theme", "load_theme_qss", "ACCENT"]
