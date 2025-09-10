@@ -15,6 +15,8 @@ QMainWindow, QDialog {
 }
 QTabWidget::pane {
     border: 0;
+    border-top: 1px solid VAR_BORDER;    /* ligne sous la barre d'onglets */
+    border-bottom: 1px solid VAR_BORDER; /* ligne en bas du contenu */
     background: VAR_WINDOW_BG;     /* fond sous les onglets */
 }
 
@@ -43,10 +45,12 @@ QTabBar::tab:hover {
 }
 /* Sélectionné: pastille + soulignement fort */
 QTabBar::tab:selected {
-    background: ACCENT;
+    /* Léger relief via dégradé et contour subtil */
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #10b6ca, stop:1 ACCENT);
     color: white;
     border: 1px solid ACCENT;
-    border-bottom: 3px solid #ffffff; /* soulignement visible */
+    border-bottom: 1px solid VAR_BORDER; /* ligne discrète en pied */
 }
 /* Focus clavier sur un onglet non sélectionné: fine ligne d’indication */
 QTabBar::tab:!selected:focus {
@@ -135,8 +139,10 @@ QToolTip {
 def _fill_common(placeholders: dict[str, str]) -> str:
     """Remplace ACCENT et les VAR_* dans BASE_QSS."""
     qss = BASE_QSS.replace("ACCENT", ACCENT)
-    for k, v in placeholders.items():
-        qss = qss.replace(k, v)
+    # Important: remplacer d'abord les clés les plus longues pour éviter
+    # que "VAR_FG" ne remplace partiellement "VAR_FG_DISABLED".
+    for k in sorted(placeholders.keys(), key=len, reverse=True):
+        qss = qss.replace(k, placeholders[k])
     return qss
 
 def _qss_dark() -> str:

@@ -29,5 +29,5 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 etacomp = [
-  "ui/themes/*.qss"
+  
 ]
