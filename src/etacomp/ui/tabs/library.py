@@ -1,12 +1,71 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QTableWidget, QTableWidgetItem, QInputDialog, QMessageBox,
-    QAbstractItemView
+    QTableWidget, QTableWidgetItem, QMessageBox,
+    QAbstractItemView, QDialog, QFormLayout, QLineEdit, QTextEdit, QDialogButtonBox
 )
 
 from ...io.storage import list_comparators, upsert_comparator, delete_comparator_by_reference
 from ...models.comparator import Comparator
+
+
+class ComparatorEditDialog(QDialog):
+    def __init__(self, parent=None, *, initial: Comparator | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Édition comparateur")
+        layout = QVBoxLayout(self)
+        self.setMinimumWidth(560)
+
+        form = QFormLayout()
+        self.ed_ref = QLineEdit()
+        self.ed_man = QLineEdit()
+        self.ed_desc = QLineEdit()
+        self.ed_targets = QLineEdit()
+
+        # Infobulles
+        self.ed_ref.setToolTip("Identifiant unique du comparateur (ex: TESA_Mic_001)")
+        self.ed_man.setToolTip("Fabricant (optionnel), ex: TESA, Mitutoyo, Mahr…")
+        self.ed_desc.setToolTip("Description libre (optionnel), ex: modèle, plage, précision…")
+        self.ed_targets.setToolTip("Liste de cibles en millimètres, séparées par virgules ou point-virgules (ex: 0; 1; 2)")
+
+        form.addRow("Référence", self.ed_ref)
+        form.addRow("Fabricant", self.ed_man)
+        form.addRow("Description", self.ed_desc)
+        form.addRow("Cibles (mm)", self.ed_targets)
+
+        layout.addLayout(form)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        if initial is not None:
+            self.ed_ref.setText(initial.reference)
+            self.ed_man.setText(initial.manufacturer or "")
+            self.ed_desc.setText(initial.description or "")
+            self.ed_targets.setText(
+                ", ".join(str(v) for v in initial.targets)
+            )
+
+    def result_model(self) -> Comparator | None:
+        ref = (self.ed_ref.text() or "").strip()
+        if not ref:
+            return None
+        man = (self.ed_man.text() or "").strip() or None
+        desc = (self.ed_desc.text() or "").strip() or None
+        targets_text = (self.ed_targets.text() or "").strip()
+        try:
+            # Séparateurs autorisés: ',' et ';'
+            items: list[str] = []
+            if targets_text:
+                for part in targets_text.split(";"):
+                    items.extend(part.split(","))
+            targets = [float(tok.replace(",", ".").strip()) for tok in items if tok.strip()]
+        except ValueError:
+            QMessageBox.warning(self, "Erreur", "Valeurs cibles invalides. Utilise des nombres séparés par des virgules.")
+            return None
+        return Comparator(reference=ref, manufacturer=man, description=desc, targets=targets)
 
 
 class LibraryTab(QWidget):
@@ -63,22 +122,14 @@ class LibraryTab(QWidget):
 
     # --------- actions ---------
     def on_add(self):
-        ref, ok = QInputDialog.getText(self, "Nouveau comparateur", "Référence :")
-        if not ok or not ref.strip():
-            return
-        man, _ = QInputDialog.getText(self, "Fabricant", "Fabricant (optionnel) :")
-        desc, _ = QInputDialog.getText(self, "Description", "Description (optionnel) :")
-        targets_text, _ = QInputDialog.getText(self, "Cibles (mm)", "Liste séparée par des virgules (ex: 0, 1, 2) :")
-        try:
-            targets = [float(x.strip()) for x in targets_text.split(",")] if targets_text.strip() else []
-        except ValueError:
-            QMessageBox.warning(self, "Erreur", "Valeurs cibles invalides.")
-            return
-
-        c = Comparator(reference=ref.strip(), manufacturer=man or None, description=desc or None, targets=targets)
-        upsert_comparator(c)
-        self.reload()
-        self.comparators_changed.emit()
+        dlg = ComparatorEditDialog(self)
+        if dlg.exec() == QDialog.Accepted:
+            model = dlg.result_model()
+            if model is None:
+                return
+            upsert_comparator(model)
+            self.reload()
+            self.comparators_changed.emit()
 
     def on_edit(self):
         ref = self.current_reference()
@@ -86,22 +137,21 @@ class LibraryTab(QWidget):
             QMessageBox.information(self, "Info", "Sélectionne un comparateur dans la liste.")
             return
 
-        new_ref, ok = QInputDialog.getText(self, "Éditer", "Référence :", text=ref)
-        if not ok or not new_ref.strip():
+        # Charger le modèle existant pour pré-remplir
+        existing = None
+        for c in list_comparators():
+            if c.reference == ref:
+                existing = c
+                break
+        dlg = ComparatorEditDialog(self, initial=existing)
+        if dlg.exec() != QDialog.Accepted:
             return
-        man, _ = QInputDialog.getText(self, "Éditer", "Fabricant (optionnel) :")
-        desc, _ = QInputDialog.getText(self, "Éditer", "Description (optionnel) :")
-        targets_text, _ = QInputDialog.getText(self, "Éditer", "Cibles (mm) séparées par virgules :")
-        try:
-            targets = [float(x.strip()) for x in targets_text.split(",")] if targets_text.strip() else []
-        except ValueError:
-            QMessageBox.warning(self, "Erreur", "Valeurs cibles invalides.")
+        model = dlg.result_model()
+        if model is None:
             return
-
-        if new_ref.strip() != ref:
+        if model.reference != ref:
             delete_comparator_by_reference(ref)
-
-        upsert_comparator(Comparator(reference=new_ref.strip(), manufacturer=man or None, description=desc or None, targets=targets))
+        upsert_comparator(model)
         self.reload()
         self.comparators_changed.emit()
 

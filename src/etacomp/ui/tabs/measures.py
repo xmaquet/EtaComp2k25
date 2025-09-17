@@ -83,10 +83,21 @@ class MeasuresTab(QWidget):
         root.addLayout(actions)
         root.addStretch()
 
+        # Donner plus d'espace vertical au tableau des mesures
+        # Indices: 0=g_cfg, 1=g_table, 2=g_log, 3=actions, 4=stretch
+        try:
+            root.setStretch(0, 0)
+            root.setStretch(1, 5)  # tableau prioritaire
+            root.setStretch(2, 1)  # log compact
+            root.setStretch(3, 0)
+        except Exception:
+            pass
+
         # ===== état interne =====
         self.targets: List[float] = []
         self.cycles: int = 0
-        self.row_avg_index: int = -1
+        self.row_avg_up_index: int = -1
+        self.row_avg_down_index: int = -1
         self.campaign_running: bool = False
         self.current_cycle: int = 1
         self.current_phase_up: bool = True
@@ -138,9 +149,9 @@ class MeasuresTab(QWidget):
             others = [t for t in self.targets if abs(t) > self.ZERO_TOL]
             self.targets = [0.0] + sorted(others)
 
-        # Lignes : 2 par itération + 1 ligne "Moyenne"
+        # Lignes : montantes (N), moyenne montantes, descendantes (N), moyenne descendantes
         self.cycles = max(1, s.series_count or 1)
-        rows = self.cycles * 2 + 1
+        rows = self.cycles * 2 + 2
         cols = len(self.targets)
 
         self.table.clear()
@@ -148,12 +159,15 @@ class MeasuresTab(QWidget):
         self.table.setColumnCount(cols)
         self.table.setHorizontalHeaderLabels([str(t) for t in self.targets])
 
-        r = 0
+        # Entêtes de lignes: montantes (1..N), moyenne ↑, descendantes (1..N), moyenne ↓
         for i in range(1, self.cycles + 1):
-            self.table.setVerticalHeaderItem(r, QTableWidgetItem(f"{i}↑")); r += 1
-            self.table.setVerticalHeaderItem(r, QTableWidgetItem(f"{i}↓")); r += 1
-        self.row_avg_index = rows - 1
-        self.table.setVerticalHeaderItem(self.row_avg_index, QTableWidgetItem("Moyenne"))
+            self.table.setVerticalHeaderItem(i - 1, QTableWidgetItem(f"{i}↑"))
+        self.row_avg_up_index = self.cycles
+        self.table.setVerticalHeaderItem(self.row_avg_up_index, QTableWidgetItem("Moyenne ↑"))
+        for i in range(1, self.cycles + 1):
+            self.table.setVerticalHeaderItem(self.row_avg_up_index + i, QTableWidgetItem(f"{i}↓"))
+        self.row_avg_down_index = self.row_avg_up_index + self.cycles + 1
+        self.table.setVerticalHeaderItem(self.row_avg_down_index, QTableWidgetItem("Moyenne ↓"))
 
         # Réinjecter éventuelles mesures
         self.by_target = {t: MeasureSeries(target=t, readings=[]) for t in self.targets}
@@ -162,7 +176,7 @@ class MeasuresTab(QWidget):
                 for pos, val in enumerate(ms.readings):
                     row = self._row_for_state((pos // 2) + 1, pos % 2 == 0)
                     col = self._col_for_target(ms.target)
-                    if row is not None and col is not None and row < self.row_avg_index:
+                    if row is not None and col is not None and row not in (self.row_avg_up_index, self.row_avg_down_index):
                         self._ensure_item(row, col).setText(str(val))
                         self._color_filled_cell(row, col, self.targets[col], float(val))
                 self.by_target[ms.target].readings = list(ms.readings)
@@ -212,7 +226,9 @@ class MeasuresTab(QWidget):
         self._update_status()
 
     def _clear_all(self):
-        for r in range(self.table.rowCount() - 1):
+        for r in range(self.table.rowCount()):
+            if r in (self.row_avg_up_index, self.row_avg_down_index):
+                continue
             for c in range(self.table.columnCount()):
                 self.table.setItem(r, c, QTableWidgetItem(""))
         for t in self.by_target.values():
@@ -306,7 +322,11 @@ class MeasuresTab(QWidget):
 
     # ------------- Table & Store -------------
     def _row_for_state(self, cycle: int, up: bool) -> int:
-        return (cycle - 1) * 2 + (0 if up else 1)
+        # Nouvelle disposition: montantes (0..N-1), moyenne ↑ (N), descendantes (N+1..2N), moyenne ↓ (2N+1)
+        if up:
+            return (cycle - 1)
+        else:
+            return self.row_avg_up_index + 1 + (cycle - 1)
 
     def _col_for_target(self, target: float) -> Optional[int]:
         try:
@@ -358,16 +378,29 @@ class MeasuresTab(QWidget):
 
     def _recompute_means(self):
         for c in range(self.table.columnCount()):
-            vals = []
-            for r in range(self.table.rowCount() - 1):
+            # Moyenne montantes
+            vals_up = []
+            for r in range(0, self.row_avg_up_index):
                 it = self.table.item(r, c)
                 if it and it.text():
                     try:
-                        vals.append(float(it.text()))
+                        vals_up.append(float(it.text()))
                     except ValueError:
                         pass
-            mean_txt = "" if not vals else f"{sum(vals)/len(vals):.6f}"
-            self._ensure_item(self.row_avg_index, c).setText(mean_txt)
+            mean_up_txt = "" if not vals_up else f"{sum(vals_up)/len(vals_up):.6f}"
+            self._ensure_item(self.row_avg_up_index, c).setText(mean_up_txt)
+
+            # Moyenne descendantes
+            vals_down = []
+            for r in range(self.row_avg_up_index + 1, self.row_avg_down_index):
+                it = self.table.item(r, c)
+                if it and it.text():
+                    try:
+                        vals_down.append(float(it.text()))
+                    except ValueError:
+                        pass
+            mean_down_txt = "" if not vals_down else f"{sum(vals_down)/len(vals_down):.6f}"
+            self._ensure_item(self.row_avg_down_index, c).setText(mean_down_txt)
 
     # ------------- Avancement & Highlight -------------
     def _advance_after_write(self) -> bool:
@@ -410,7 +443,7 @@ class MeasuresTab(QWidget):
         else:
             row = self._row_for_state(self.current_cycle, self.current_phase_up)
             col = self.current_col
-        if row >= self.row_avg_index:
+        if row in (self.row_avg_up_index, self.row_avg_down_index):
             self._clear_highlight(); return
         self._clear_highlight()
         it = self._ensure_item(row, col)

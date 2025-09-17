@@ -1,0 +1,10 @@
+{
+  "operator": "Xavier MAQUET",
+  "date": "2025-08-27T17:15:05.759762",
+  "temperature_c": 0.0,
+  "humidity_pct": 0.0,
+  "comparator_ref": null,
+  "series_count": 2,
+  "measures_per_series": 11,
+  "observations": null
+}

@@ -1,0 +1,5 @@
+# Cursor rules for working with converted docs
+- Always prefer using the files under docs/_converted when I reference @Files & Folders.
+- When summarizing, produce concise bullet lists and preserve headings structure.
+- Code examples should be idiomatic Python 3.11+ with type hints.
+- Respect Ruff/Black formatting if you propose code changes.

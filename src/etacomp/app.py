@@ -15,5 +15,5 @@ def run():
         app.setStyleSheet(qss)
 
     window = MainWindow()
-    window.show()
+    window.showMaximized()
     sys.exit(app.exec())
