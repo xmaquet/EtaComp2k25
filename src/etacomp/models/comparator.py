@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from pathlib import Path
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -16,18 +17,17 @@ class RangeType(str, Enum):
     LIMITEE = "limitee"
 
 
-class Comparator(BaseModel):
-    reference: str
-    manufacturer: Optional[str] = None
-    description: Optional[str] = None
-
-    graduation: Optional[float] = Field(default=None, description="Échelon (mm)")
-    course: Optional[float] = Field(default=None, description="Course nominale (mm)")
-    range_type: Optional[RangeType] = Field(default=None)
-
-    # 11 cibles (mm)
-    targets: List[float] = Field(default_factory=list)
-
+class ComparatorProfile(BaseModel):
+    """Profil de comparateur avec validation stricte selon les spécifications."""
+    
+    reference: str = Field(..., min_length=1, description="Référence unique du comparateur")
+    manufacturer: Optional[str] = Field(None, description="Fabricant")
+    description: Optional[str] = Field(None, description="Description")
+    graduation: float = Field(..., gt=0, description="Graduation en millimètres (valeur unique)")
+    course: float = Field(..., gt=0, description="Course maximale en millimètres")
+    range_type: RangeType = Field(..., description="Type de comparateur")
+    targets: List[float] = Field(..., min_length=11, max_length=11, description="Liste des 11 cibles en millimètres")
+    
     @property
     def filename(self) -> str:
         base = self.reference.strip().replace(" ", "_")
@@ -35,61 +35,53 @@ class Comparator(BaseModel):
 
     @model_validator(mode="after")
     def _validate_profile(self):
-        # targets présents
-        if not self.targets:
-            raise ValueError("Aucune cible n’est définie.")
-        # déductions si manquants (migration)
-        if self.course is None:
-            self.course = max(self.targets)
-        if self.graduation is None:
-            self.graduation = _infer_graduation(self.targets)
-        if self.range_type is None:
-            self.range_type = _infer_range_type(self.course)
-
-        # validations
-        if self.graduation is None or self.graduation <= 0:
-            raise ValueError("La graduation doit être > 0.")
-        if self.course is None or self.course <= 0:
-            raise ValueError("La course doit être > 0.")
-        if len(self.targets) != 11:
-            raise ValueError(f"Le profil doit contenir 11 cibles (actuel: {len(self.targets)}).")
-        # 0 présent avec tolérance
-        if min(self.targets) > 0 + TOL or all(abs(t - 0.0) > TOL for t in self.targets):
-            raise ValueError("La cible 0.0 mm doit être présente.")
-        # bornes et ordre
-        last = None
-        for i, t in enumerate(self.targets, start=1):
-            if t < -TOL or t > self.course + TOL:
-                raise ValueError(f"La cible n°{i} ({t:.3f} mm) dépasse la course {self.course:.3f} mm.")
-            if last is not None and t + TOL < last:
-                raise ValueError(f"Les cibles doivent être non décroissantes (position {i}).")
-            last = t
+        """Validation stricte selon les spécifications."""
+        targets = self.targets
+        
+        # Vérifier qu'il y a exactement 11 cibles
+        if len(targets) != 11:
+            raise ValueError(f"Le profil doit contenir exactement 11 cibles (actuel: {len(targets)})")
+        
+        # Vérifier que la première cible est 0 (avec tolérance)
+        if abs(min(targets) - 0.0) > TOL:
+            raise ValueError(f"La première cible doit être 0.0 mm (actuel: {min(targets):.6f} mm)")
+        
+        # Vérifier que toutes les cibles sont dans la plage [0, course]
+        for i, target in enumerate(targets, start=1):
+            if target < -TOL or target > self.course + TOL:
+                raise ValueError(f"Cible {i}: {target:.6f} mm hors plage [0, {self.course:.6f}] mm")
+        
+        # Vérifier que les cibles sont non-décroissantes (croissantes ou égales)
+        for i in range(1, len(targets)):
+            if targets[i] + TOL < targets[i-1]:
+                raise ValueError(f"Cibles non ordonnées: {targets[i-1]:.6f} mm > {targets[i]:.6f} mm")
+        
         return self
 
 
-def _infer_graduation(targets: List[float]) -> float:
-    if not targets or len(targets) == 1:
-        return 0.01
-    # calcul d’incrément médian
-    diffs = []
-    for a, b in zip(targets, targets[1:]):
-        d = abs(b - a)
-        if d > TOL:
-            diffs.append(d)
-    if not diffs:
-        return 0.01
-    avg = sum(diffs) / len(diffs)
-    # arrondi aux valeurs usuelles
-    candidates = [0.001, 0.01, 0.02, 0.05, 0.1]
-    best = min(candidates, key=lambda x: abs(x - avg))
-    return best
+def load_profile(path: Path) -> Optional[ComparatorProfile]:
+    """Charge un profil de comparateur depuis un fichier JSON."""
+    if not path.exists():
+        return None
+    
+    try:
+        import json
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return ComparatorProfile.model_validate(data)
+    except Exception as e:
+        raise ValueError(f"Impossible de charger le profil depuis {path}: {e}")
 
 
-def _infer_range_type(course: float) -> RangeType:
-    if course <= 0.5 + TOL:
-        return RangeType.LIMITEE
-    if course <= 1.0 + TOL:
-        return RangeType.FAIBLE
-    if course <= 20.0 + TOL:
-        return RangeType.NORMALE
-    return RangeType.GRANDE
+def save_profile(path: Path, profile: ComparatorProfile) -> None:
+    """Sauvegarde un profil de comparateur dans un fichier JSON."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        import json
+        path.write_text(profile.model_dump_json(indent=2), encoding="utf-8")
+    except Exception as e:
+        raise ValueError(f"Impossible de sauvegarder le profil vers {path}: {e}")
+
+
+# Alias pour compatibilité avec l'ancien code
+Comparator = ComparatorProfile

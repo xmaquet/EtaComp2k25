@@ -11,76 +11,80 @@ from PySide6.QtWidgets import (
     QDialog, QFormLayout, QDoubleSpinBox, QComboBox, QDialogButtonBox
 )
 
-from ...rules.tolerances import ToleranceRuleEngine, ToleranceRule, RangeType
+from ...rules.tolerances import ToleranceRuleEngine, ToleranceRule
 from ...config.paths import get_data_dir
 
 
 class RuleEditDialog(QDialog):
     """Dialogue d'édition d'une règle de tolérance."""
     
-    def __init__(self, parent=None, *, initial: Optional[ToleranceRule] = None, family: RangeType = RangeType.NORMALE):
+    def __init__(self, parent=None, *, initial: Optional[ToleranceRule] = None, family: str = "normale"):
         super().__init__(parent)
         self.setWindowTitle("Édition règle de tolérance")
         self.setMinimumWidth(500)
+        
+        self.family = family
         
         layout = QVBoxLayout(self)
         
         form = QFormLayout()
         
-        # Famille (lecture seule si initial fourni)
-        self.family_combo = QComboBox()
-        self.family_combo.addItems([rt.value for rt in RangeType])
-        if initial:
-            idx = list(RangeType).index(initial)
-            self.family_combo.setCurrentIndex(idx)
-            self.family_combo.setEnabled(False)
-        else:
-            idx = list(RangeType).index(family)
-            self.family_combo.setCurrentIndex(idx)
+        # Graduation (toujours présent)
+        self.graduation = QDoubleSpinBox()
+        self.graduation.setRange(0.001, 1.0)
+        self.graduation.setDecimals(3)
+        self.graduation.setSingleStep(0.001)
+        self.graduation.setToolTip("Graduation en millimètres (valeur unique)")
         
-        # Plages graduation
-        self.grad_min = QDoubleSpinBox()
-        self.grad_min.setRange(0.001, 1.0)
-        self.grad_min.setDecimals(3)
-        self.grad_min.setSingleStep(0.001)
-        self.grad_max = QDoubleSpinBox()
-        self.grad_max.setRange(0.001, 1.0)
-        self.grad_max.setDecimals(3)
-        self.grad_max.setSingleStep(0.001)
-        
-        # Plages course
+        # Course min/max (seulement pour normale/grande)
         self.course_min = QDoubleSpinBox()
-        self.course_min.setRange(0.1, 100.0)
+        self.course_min.setRange(0.0, 100.0)
         self.course_min.setDecimals(3)
         self.course_min.setSingleStep(0.1)
+        self.course_min.setToolTip("Course minimale en millimètres")
+        
         self.course_max = QDoubleSpinBox()
-        self.course_max.setRange(0.1, 100.0)
+        self.course_max.setRange(0.0, 100.0)
         self.course_max.setDecimals(3)
         self.course_max.setSingleStep(0.1)
+        self.course_max.setToolTip("Course maximale en millimètres")
         
         # Limites de tolérance
         self.emt = QDoubleSpinBox()
-        self.emt.setRange(0.001, 1.0)
+        self.emt.setRange(0.0, 1.0)
         self.emt.setDecimals(3)
         self.emt.setSingleStep(0.001)
+        self.emt.setToolTip("Erreur de mesure totale (mm)")
+        
         self.eml = QDoubleSpinBox()
-        self.eml.setRange(0.001, 1.0)
+        self.eml.setRange(0.0, 1.0)
         self.eml.setDecimals(3)
         self.eml.setSingleStep(0.001)
+        self.eml.setToolTip("Erreur de mesure locale (mm)")
+        
         self.ef = QDoubleSpinBox()
-        self.ef.setRange(0.001, 1.0)
+        self.ef.setRange(0.0, 1.0)
         self.ef.setDecimals(3)
         self.ef.setSingleStep(0.001)
+        self.ef.setToolTip("Erreur de fidélité (mm)")
+        
         self.eh = QDoubleSpinBox()
-        self.eh.setRange(0.001, 1.0)
+        self.eh.setRange(0.0, 1.0)
         self.eh.setDecimals(3)
         self.eh.setSingleStep(0.001)
+        self.eh.setToolTip("Erreur d'hystérésis (mm)")
         
-        form.addRow("Famille", self.family_combo)
-        form.addRow("Graduation min (mm)", self.grad_min)
-        form.addRow("Graduation max (mm)", self.grad_max)
-        form.addRow("Course min (mm)", self.course_min)
-        form.addRow("Course max (mm)", self.course_max)
+        form.addRow("Graduation (mm)", self.graduation)
+        
+        # Ajouter course min/max seulement pour normale/grande
+        if family in ("normale", "grande"):
+            form.addRow("Course min (mm)", self.course_min)
+            form.addRow("Course max (mm)", self.course_max)
+        else:
+            # Masquer les champs pour faible/limitée
+            self.course_min.setVisible(False)
+            self.course_max.setVisible(False)
+        
         form.addRow("Emt limite (mm)", self.emt)
         form.addRow("Eml limite (mm)", self.eml)
         form.addRow("Ef limite (mm)", self.ef)
@@ -96,10 +100,11 @@ class RuleEditDialog(QDialog):
         
         # Pré-remplir si initial fourni
         if initial:
-            self.grad_min.setValue(initial.graduation_min)
-            self.grad_max.setValue(initial.graduation_max)
-            self.course_min.setValue(initial.course_min)
-            self.course_max.setValue(initial.course_max)
+            self.graduation.setValue(initial.graduation)
+            if initial.course_min is not None:
+                self.course_min.setValue(initial.course_min)
+            if initial.course_max is not None:
+                self.course_max.setValue(initial.course_max)
             self.emt.setValue(initial.Emt)
             self.eml.setValue(initial.Eml)
             self.ef.setValue(initial.Ef)
@@ -108,24 +113,27 @@ class RuleEditDialog(QDialog):
     def result_rule(self) -> Optional[ToleranceRule]:
         """Retourne la règle construite ou None si invalide."""
         try:
-            family = RangeType(self.family_combo.currentText())
-            return ToleranceRule(
-                graduation_min=self.grad_min.value(),
-                graduation_max=self.grad_max.value(),
-                course_min=self.course_min.value(),
-                course_max=self.course_max.value(),
-                Emt=self.emt.value(),
-                Eml=self.eml.value(),
-                Ef=self.ef.value(),
-                Eh=self.eh.value()
-            )
+            kwargs = {
+                "graduation": self.graduation.value(),
+                "Emt": self.emt.value(),
+                "Eml": self.eml.value(),
+                "Ef": self.ef.value(),
+                "Eh": self.eh.value()
+            }
+            
+            # Ajouter course_min/max seulement pour normale/grande
+            if self.family in ("normale", "grande"):
+                kwargs["course_min"] = self.course_min.value()
+                kwargs["course_max"] = self.course_max.value()
+            
+            return ToleranceRule(**kwargs)
         except ValueError as e:
             QMessageBox.warning(self, "Erreur", f"Règle invalide : {e}")
             return None
 
 
 class SettingsRulesTab(QWidget):
-    """Onglet d'édition des règles de tolérances."""
+    """Onglet d'édition des règles de tolérances avec 4 sections."""
     
     rules_changed = Signal()  # émis après modification des règles
     
@@ -147,16 +155,21 @@ class SettingsRulesTab(QWidget):
         
         # Créer un onglet par famille
         self.family_tables = {}
-        for family in RangeType:
+        families = ["normale", "grande", "faible", "limitee"]
+        
+        for family in families:
             tab = QWidget()
             tab_layout = QVBoxLayout(tab)
             
+            # Colonnes selon la famille
+            if family in ("normale", "grande"):
+                headers = ["Graduation", "Course min", "Course max", "Emt", "Eml", "Ef", "Eh"]
+            else:
+                headers = ["Graduation", "Emt", "Eml", "Ef", "Eh"]
+            
             # Tableau des règles
-            table = QTableWidget(0, 8)
-            table.setHorizontalHeaderLabels([
-                "Graduation min", "Graduation max", "Course min", "Course max",
-                "Emt", "Eml", "Ef", "Eh"
-            ])
+            table = QTableWidget(0, len(headers))
+            table.setHorizontalHeaderLabels(headers)
             table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
             table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             tab_layout.addWidget(table)
@@ -180,7 +193,7 @@ class SettingsRulesTab(QWidget):
             btn_layout.addStretch()
             tab_layout.addLayout(btn_layout)
             
-            self.tabs.addTab(tab, family.value.title())
+            self.tabs.addTab(tab, family.title())
             self.family_tables[family] = table
         
         # Boutons globaux
@@ -226,14 +239,23 @@ class SettingsRulesTab(QWidget):
             table.setRowCount(len(rules))
             
             for row, rule in enumerate(rules):
-                table.setItem(row, 0, QTableWidgetItem(f"{rule.graduation_min:.3f}"))
-                table.setItem(row, 1, QTableWidgetItem(f"{rule.graduation_max:.3f}"))
-                table.setItem(row, 2, QTableWidgetItem(f"{rule.course_min:.3f}"))
-                table.setItem(row, 3, QTableWidgetItem(f"{rule.course_max:.3f}"))
-                table.setItem(row, 4, QTableWidgetItem(f"{rule.Emt:.3f}"))
-                table.setItem(row, 5, QTableWidgetItem(f"{rule.Eml:.3f}"))
-                table.setItem(row, 6, QTableWidgetItem(f"{rule.Ef:.3f}"))
-                table.setItem(row, 7, QTableWidgetItem(f"{rule.Eh:.3f}"))
+                col = 0
+                table.setItem(row, col, QTableWidgetItem(f"{rule.graduation:.3f}"))
+                col += 1
+                
+                if family in ("normale", "grande"):
+                    table.setItem(row, col, QTableWidgetItem(f"{rule.course_min:.3f}" if rule.course_min is not None else ""))
+                    col += 1
+                    table.setItem(row, col, QTableWidgetItem(f"{rule.course_max:.3f}" if rule.course_max is not None else ""))
+                    col += 1
+                
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Emt:.3f}"))
+                col += 1
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Eml:.3f}"))
+                col += 1
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Ef:.3f}"))
+                col += 1
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Eh:.3f}"))
     
     def _update_status(self):
         """Met à jour le bandeau d'état."""
@@ -245,7 +267,7 @@ class SettingsRulesTab(QWidget):
             self.status_label.setText(f"Erreurs détectées : {'; '.join(errors)}")
             self.status_label.setStyleSheet("QLabel { background: #f8d7da; color: #721c24; padding: 8px; border-radius: 4px; }")
     
-    def _add_rule(self, family: RangeType):
+    def _add_rule(self, family: str):
         """Ajoute une nouvelle règle."""
         dlg = RuleEditDialog(self, family=family)
         if dlg.exec() == QDialog.Accepted:
@@ -256,7 +278,7 @@ class SettingsRulesTab(QWidget):
                 self._update_status()
                 self.rules_changed.emit()
     
-    def _edit_rule(self, family: RangeType):
+    def _edit_rule(self, family: str):
         """Édite la règle sélectionnée."""
         table = self.family_tables[family]
         row = table.currentRow()
@@ -274,7 +296,7 @@ class SettingsRulesTab(QWidget):
                 self._update_status()
                 self.rules_changed.emit()
     
-    def _duplicate_rule(self, family: RangeType):
+    def _duplicate_rule(self, family: str):
         """Duplique la règle sélectionnée."""
         table = self.family_tables[family]
         row = table.currentRow()
@@ -283,12 +305,11 @@ class SettingsRulesTab(QWidget):
             return
         
         rule = self.engine.rules[family][row]
-        # Créer une copie avec des valeurs légèrement différentes
+        # Créer une copie avec graduation légèrement différente
         new_rule = ToleranceRule(
-            graduation_min=rule.graduation_min + 0.001,
-            graduation_max=rule.graduation_max + 0.001,
-            course_min=rule.course_min + 0.1,
-            course_max=rule.course_max + 0.1,
+            graduation=rule.graduation + 0.001,
+            course_min=rule.course_min,
+            course_max=rule.course_max,
             Emt=rule.Emt, Eml=rule.Eml, Ef=rule.Ef, Eh=rule.Eh
         )
         self.engine.rules[family].append(new_rule)
@@ -296,7 +317,7 @@ class SettingsRulesTab(QWidget):
         self._update_status()
         self.rules_changed.emit()
     
-    def _delete_rule(self, family: RangeType):
+    def _delete_rule(self, family: str):
         """Supprime la règle sélectionnée."""
         table = self.family_tables[family]
         row = table.currentRow()
