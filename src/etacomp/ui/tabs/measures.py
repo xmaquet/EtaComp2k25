@@ -98,6 +98,7 @@ class MeasuresTab(QWidget):
         self.cycles: int = 0
         self.row_avg_up_index: int = -1
         self.row_avg_down_index: int = -1
+        self.row_index_line: int = -1  # ligne d'indices des cibles
         self.campaign_running: bool = False
         self.current_cycle: int = 1
         self.current_phase_up: bool = True
@@ -149,9 +150,9 @@ class MeasuresTab(QWidget):
             others = [t for t in self.targets if abs(t) > self.ZERO_TOL]
             self.targets = [0.0] + sorted(others)
 
-        # Lignes : montantes (N), moyenne montantes, descendantes (N), moyenne descendantes
+        # Lignes : montantes (N), moyenne montantes, descendantes (N), moyenne descendantes, indices
         self.cycles = max(1, s.series_count or 1)
-        rows = self.cycles * 2 + 2
+        rows = self.cycles * 2 + 3
         cols = len(self.targets)
 
         self.table.clear()
@@ -169,6 +170,10 @@ class MeasuresTab(QWidget):
         self.row_avg_down_index = self.row_avg_up_index + self.cycles + 1
         self.table.setVerticalHeaderItem(self.row_avg_down_index, QTableWidgetItem("Moyenne ↓"))
 
+        # Ligne d'indices sous le tableau
+        self.row_index_line = self.row_avg_down_index + 1
+        self.table.setVerticalHeaderItem(self.row_index_line, QTableWidgetItem("Index"))
+
         # Réinjecter éventuelles mesures
         self.by_target = {t: MeasureSeries(target=t, readings=[]) for t in self.targets}
         for ms in s.series:
@@ -176,10 +181,18 @@ class MeasuresTab(QWidget):
                 for pos, val in enumerate(ms.readings):
                     row = self._row_for_state((pos // 2) + 1, pos % 2 == 0)
                     col = self._col_for_target(ms.target)
-                    if row is not None and col is not None and row not in (self.row_avg_up_index, self.row_avg_down_index):
+                    if row is not None and col is not None and row not in (self.row_avg_up_index, self.row_avg_down_index, self.row_index_line):
                         self._ensure_item(row, col).setText(str(val))
                         self._color_filled_cell(row, col, self.targets[col], float(val))
                 self.by_target[ms.target].readings = list(ms.readings)
+
+        # Remplir la ligne d'indices (1..N) et appliquer un style différenciant
+        for c in range(self.table.columnCount()):
+            it = self._ensure_item(self.row_index_line, c)
+            it.setText(str(c + 1))
+            it.setBackground(QBrush(QColor(230, 230, 230)))  # gris clair
+            f = it.font(); f.setBold(True); it.setFont(f)
+            it.setToolTip("Index de colonne (cible #)")
 
         # Reset capture
         self.campaign_running = False
@@ -227,7 +240,7 @@ class MeasuresTab(QWidget):
 
     def _clear_all(self):
         for r in range(self.table.rowCount()):
-            if r in (self.row_avg_up_index, self.row_avg_down_index):
+            if r in (self.row_avg_up_index, self.row_avg_down_index, self.row_index_line):
                 continue
             for c in range(self.table.columnCount()):
                 self.table.setItem(r, c, QTableWidgetItem(""))
@@ -443,7 +456,7 @@ class MeasuresTab(QWidget):
         else:
             row = self._row_for_state(self.current_cycle, self.current_phase_up)
             col = self.current_col
-        if row in (self.row_avg_up_index, self.row_avg_down_index):
+        if row in (self.row_avg_up_index, self.row_avg_down_index, self.row_index_line):
             self._clear_highlight(); return
         self._clear_highlight()
         it = self._ensure_item(row, col)

@@ -15,6 +15,7 @@ from .tabs.calibration_curve import CalibrationCurveTab
 from ..config.defaults import APP_TITLE
 from ..config.prefs import load_prefs
 from .themes import apply_theme
+from .help_dialog import HelpDialog
 
 
 class MainWindow(QMainWindow):
@@ -64,6 +65,11 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about_dialog)
         aide_menu.addAction(about_action)
 
+        doc_action = QAction("Documentation…", self)
+        doc_action.setShortcut("F1")
+        doc_action.triggered.connect(self.show_help_dialog)
+        aide_menu.addAction(doc_action)
+
     # ===== Thème =====
     def _on_theme_changed(self, theme: str):
         apply_theme(self, theme)
@@ -106,3 +112,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(close_btn, alignment=Qt.AlignCenter)
 
         dialog.exec()
+
+    def show_help_dialog(self):
+        dlg = HelpDialog(self)
+        dlg.setAttribute(Qt.WA_DeleteOnClose, True)
+        dlg.show()

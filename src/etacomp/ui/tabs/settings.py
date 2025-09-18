@@ -3,13 +3,15 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QHBoxLayout,
-    QLabel, QComboBox, QSpinBox, QCheckBox, QPushButton, QMessageBox, QApplication
+    QLabel, QComboBox, QSpinBox, QCheckBox, QPushButton, QMessageBox, QApplication,
+    QTabWidget
 )
 
 from ...ui.themes import load_theme_qss
 from ...config.prefs import load_prefs, save_prefs, Preferences
 from ...config.defaults import DEFAULT_THEME
 from ...config.paths import get_data_dir
+from .settings_rules import SettingsRulesTab
 
 
 class SettingsTab(QWidget):
@@ -23,6 +25,15 @@ class SettingsTab(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(12)
+
+        # Onglets pour organiser les paramètres
+        self.tabs = QTabWidget()
+        root.addWidget(self.tabs)
+
+        # Onglet Général
+        general_tab = QWidget()
+        general_layout = QVBoxLayout(general_tab)
+        general_layout.setSpacing(12)
 
         # ====== Zone 1: Apparence ======
         g_appearance = QGroupBox("Apparence")
@@ -103,14 +114,21 @@ class SettingsTab(QWidget):
         self.btn_save.clicked.connect(self.on_save)
         self.btn_reset.clicked.connect(self.on_reset)
 
-        # Assembler
-        root.addWidget(g_appearance)
-        root.addWidget(g_session)
-        root.addWidget(g_save)
-        root.addWidget(g_lang)
-        root.addWidget(g_adv)
-        root.addLayout(btns)
-        root.addStretch()
+        # Assembler l'onglet général
+        general_layout.addWidget(g_appearance)
+        general_layout.addWidget(g_session)
+        general_layout.addWidget(g_save)
+        general_layout.addWidget(g_lang)
+        general_layout.addWidget(g_adv)
+        general_layout.addLayout(btns)
+        general_layout.addStretch()
+
+        # Ajouter les onglets
+        self.tabs.addTab(general_tab, "Général")
+        
+        # Onglet Règles de tolérances
+        self.rules_tab = SettingsRulesTab()
+        self.tabs.addTab(self.rules_tab, "Règles")
 
     # ====== Slots ======
     def on_theme_changed(self, theme: str):

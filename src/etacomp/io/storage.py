@@ -44,6 +44,7 @@ def list_comparators() -> List[Comparator]:
     for fp in list_comparator_files():
         try:
             data = json.loads(fp.read_text(encoding="utf-8"))
+            # Le validateur gère la migration (déduction course/graduation/range_type)
             comps.append(Comparator.model_validate(data))
         except Exception:
             # on ignore les fichiers corrompus
