@@ -157,6 +157,9 @@ class SettingsRulesTab(QWidget):
         self.family_tables = {}
         families = ["normale", "grande", "faible", "limitee"]
         
+        # Import pour accéder aux libellés complets
+        from ...models.comparator import RangeType
+        
         for family in families:
             tab = QWidget()
             tab_layout = QVBoxLayout(tab)
@@ -193,7 +196,7 @@ class SettingsRulesTab(QWidget):
             btn_layout.addStretch()
             tab_layout.addLayout(btn_layout)
             
-            self.tabs.addTab(tab, family.title())
+            self.tabs.addTab(tab, RangeType(family).display_name)
             self.family_tables[family] = table
         
         # Boutons globaux

@@ -30,7 +30,9 @@ class ComparatorEditDialog(QDialog):
         self.ed_course.setDecimals(3)
         self.ed_course.setSingleStep(0.1)
         self.ed_range = QComboBox()
-        self.ed_range.addItems([t.value for t in RangeType])
+        # Ajouter les libellés complets mais garder les valeurs courtes
+        for rt in RangeType:
+            self.ed_range.addItem(rt.display_name, rt.value)
         self.ed_targets = QLineEdit()
 
         # Infobulles
@@ -64,8 +66,11 @@ class ComparatorEditDialog(QDialog):
             self.ed_grad.setValue(initial.graduation or 0.01)
             self.ed_course.setValue(initial.course or 1.0)
             if initial.range_type:
-                idx = list(RangeType).index(initial.range_type)
-                self.ed_range.setCurrentIndex(idx)
+                # Trouver l'index correspondant à la valeur
+                for i in range(self.ed_range.count()):
+                    if self.ed_range.itemData(i) == initial.range_type.value:
+                        self.ed_range.setCurrentIndex(i)
+                        break
             self.ed_targets.setText(
                 ", ".join(str(v) for v in initial.targets)
             )
@@ -78,7 +83,7 @@ class ComparatorEditDialog(QDialog):
         desc = (self.ed_desc.text() or "").strip() or None
         grad = self.ed_grad.value()
         course = self.ed_course.value()
-        range_type = RangeType(self.ed_range.currentText())
+        range_type = RangeType(self.ed_range.currentData())
         targets_text = (self.ed_targets.text() or "").strip()
         try:
             # Séparateurs autorisés: ',' et ';'
@@ -149,7 +154,7 @@ class LibraryTab(QWidget):
             self.table.setItem(row, 1, QTableWidgetItem(c.manufacturer or ""))
             self.table.setItem(row, 2, QTableWidgetItem(f"{c.graduation:.3f}" if c.graduation else ""))
             self.table.setItem(row, 3, QTableWidgetItem(f"{c.course:.3f}" if c.course else ""))
-            self.table.setItem(row, 4, QTableWidgetItem(c.range_type.value if c.range_type else ""))
+            self.table.setItem(row, 4, QTableWidgetItem(c.range_type.display_name if c.range_type else ""))
             # Afficher la liste complète des cibles avec formatage cohérent
             targets_text = ", ".join(f"{t:.3f}" for t in c.targets)
             self.table.setItem(row, 5, QTableWidgetItem(targets_text))

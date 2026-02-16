@@ -17,6 +17,14 @@ def grad_eq(a: float, b: float) -> bool:
     return abs(a - b) <= EPS
 
 
+def get_family_display_name(family: str) -> str:
+    """Retourne le libellé complet d'une famille de course."""
+    try:
+        return RangeType(family).display_name
+    except ValueError:
+        return family  # fallback si la famille n'est pas reconnue
+
+
 @dataclass
 class ToleranceRule:
     """Une règle de tolérance pour une famille donnée."""
@@ -158,33 +166,33 @@ class ToleranceRuleEngine:
                 try:
                     rule.__post_init__()  # Validation de la règle
                 except ValueError as e:
-                    errors.append(f"{family}[{i+1}]: {e}")
+                    errors.append(f"{get_family_display_name(family)}[{i+1}]: {e}")
             
             # Vérifier les chevauchements
             for i, rule1 in enumerate(rules_list):
                 for j, rule2 in enumerate(rules_list[i+1:], i+1):
                     if rule1.overlaps(rule2):
-                        errors.append(f"{family}: chevauchement entre règles {i+1} et {j+1}")
+                        errors.append(f"{get_family_display_name(family)}: chevauchement entre règles {i+1} et {j+1}")
             
             # Vérifications spécifiques par famille
             if family in ("normale", "grande"):
                 # Vérifier que toutes les règles ont course_min/max
                 for i, rule in enumerate(rules_list):
                     if rule.course_min is None or rule.course_max is None:
-                        errors.append(f"{family}[{i+1}]: course_min et course_max obligatoires")
+                        errors.append(f"{get_family_display_name(family)}[{i+1}]: course_min et course_max obligatoires")
             
             elif family in ("faible", "limitee"):
                 # Vérifier qu'aucune règle n'a course_min/max
                 for i, rule in enumerate(rules_list):
                     if rule.course_min is not None or rule.course_max is not None:
-                        errors.append(f"{family}[{i+1}]: course_min/course_max interdits")
+                        errors.append(f"{get_family_display_name(family)}[{i+1}]: course_min/course_max interdits")
                 
                 # Vérifier l'unicité des graduations
                 graduations = [rule.graduation for rule in rules_list]
                 seen = set()
                 for grad in graduations:
                     if any(grad_eq(grad, seen_grad) for seen_grad in seen):
-                        errors.append(f"{family}: graduation {grad:.6f} mm dupliquée")
+                        errors.append(f"{get_family_display_name(family)}: graduation {grad:.6f} mm dupliquée")
                     seen.add(grad)
         
         return errors
@@ -228,7 +236,7 @@ class ToleranceRuleEngine:
             return Verdict(
                 status="indetermine",
                 messages=[
-                    f"Aucune règle ne couvre la famille {profile.range_type.value} "
+                    f"Aucune règle ne couvre la famille {profile.range_type.display_name} "
                     f"avec graduation {profile.graduation:.3f} mm{course_info}. "
                     f"Complétez Paramètres ▸ Règles."
                 ]

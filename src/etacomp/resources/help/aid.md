@@ -250,7 +250,7 @@ Le logiciel **choisit automatiquement** la règle applicable à partir du profil
 #### 7.4.2 Comprendre les familles de course
 
 * **Course normale** : comparateurs usuels dont la course est **intermédiaire** (par exemple autour de 10 mm). C’est le cas le plus répandu.
-* **Grande course** : comparateurs permettant des **déplacements plus importants** (par exemple autour de 20 à 30 mm et au‑delà). Ils sont utiles pour des contrôles nécessitant une grande amplitude.
+* **Course longue** : comparateurs permettant des **déplacements plus importants** (par exemple autour de 20 à 30 mm et au‑delà). Ils sont utiles pour des contrôles nécessitant une grande amplitude.
 * **Faible course** : comparateurs destinés à des **déplacements très faibles** (par exemple environ 1 mm). Ils permettent des résolutions très fines, souvent associées à des graduations **très petites** (jusqu’à 0,001 mm).
 * **Course limitée** : comparateurs dont la course est **inférieure au millimètre** (par exemple 0,5 mm). On les utilise lorsque l’on cherche avant tout la **sensibilité**, avec une plage très réduite.
 

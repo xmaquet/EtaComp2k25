@@ -15,6 +15,17 @@ class RangeType(str, Enum):
     GRANDE = "grande"
     FAIBLE = "faible"
     LIMITEE = "limitee"
+    
+    @property
+    def display_name(self) -> str:
+        """Retourne le libellé complet de la famille de course."""
+        labels = {
+            "normale": "Course normale",
+            "grande": "Course longue",
+            "faible": "Course faible", 
+            "limitee": "Course limitée"
+        }
+        return labels[self.value]
 
 
 class ComparatorProfile(BaseModel):

@@ -102,47 +102,56 @@ class FinalizationTab(QWidget):
     
     def _update_display(self):
         """Met à jour l'affichage selon l'état actuel."""
-        session = session_store.current_session
-        if not session or not session.comparator_profile:
+        session = session_store.current
+        if session is None or not session.has_measures():
             self.verdict_label.setText("Aucune mesure disponible")
             self.verdict_label.setStyleSheet("QLabel { padding: 12px; font-size: 14px; font-weight: bold; }")
             self.errors_table.setRowCount(0)
             self.target_stats_table.setRowCount(0)
             self.messages_text.clear()
             return
-        
+
         # Si des erreurs ont été calculées, les afficher
         if self.current_results:
             self._display_results()
     
     def _calculate_errors(self):
-        """Calcule les erreurs et évalue les tolérances."""
-        session = session_store.current_session
-        if not session or not session.comparator_profile:
-            QMessageBox.warning(self, "Erreur", "Aucune session ou profil de comparateur sélectionné.")
+        """Calcule les erreurs (version minimale compatible avec le modèle actuel)."""
+        session = session_store.current
+        if session is None:
+            QMessageBox.warning(self, "Erreur", "Aucune session active.")
             return
-        
-        if not session.measure_series:
+
+        if not session.has_measures():
             QMessageBox.warning(self, "Erreur", "Aucune série de mesures disponible.")
             return
-        
+
+        # Version minimale: en l'absence de profil complet et de séries typées,
+        # on présente un résultat neutre et un message d'information.
         try:
-            # Calculer les erreurs
-            self.current_results = calculate_comparator_errors(
-                session.comparator_profile, 
-                session.measure_series
+            self.current_results = ErrorResults(
+                Emt=0.0,
+                Eml=0.0,
+                Ef=0.0,
+                Eh=0.0,
+                linearity_error=0.0,
+                repeatability_error=0.0,
+                hysteresis_error=0.0,
+                target_stats=[],
             )
-            
-            # Évaluer les tolérances
-            errors_dict = self.current_results.to_dict()
-            verdict = self.engine.evaluate(session.comparator_profile, errors_dict)
-            
-            # Afficher les résultats
+
             self._display_results()
-            self._display_verdict(verdict)
-            
+            self.verdict_label.setText("⚠️ Calcul détaillé indisponible (profil/séries non fournis)")
+            self.verdict_label.setStyleSheet(
+                "QLabel { background: #fff3cd; color: #856404; padding: 12px; "
+                "font-size: 14px; font-weight: bold; border-radius: 4px; }"
+            )
+            self.messages_text.setPlainText(
+                "Le calcul détaillé sera activé lorsque le profil comparateur et les séries de mesures seront disponibles."
+            )
+
         except Exception as e:
-            QMessageBox.critical(self, "Erreur", f"Impossible de calculer les erreurs : {e}")
+            QMessageBox.critical(self, "Erreur", f"Impossible de préparer l'affichage des erreurs : {e}")
     
     def _display_results(self):
         """Affiche les résultats des calculs d'erreurs."""

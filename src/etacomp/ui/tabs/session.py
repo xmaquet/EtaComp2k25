@@ -86,7 +86,7 @@ class SessionTab(QWidget):
         self.btn_disconnect.clicked.connect(self._do_disconnect)
 
         # Champs -> session automatique
-        self.operator.textChanged.connect(self._push_metadata_from_ui)
+        self.operator.editingFinished.connect(self._push_metadata_from_ui)
         self.temp.valueChanged.connect(self._push_metadata_from_ui)
         self.humi.valueChanged.connect(self._push_metadata_from_ui)
         self.comparator_combo.currentIndexChanged.connect(self._push_metadata_from_ui)
