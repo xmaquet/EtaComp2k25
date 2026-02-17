@@ -5,7 +5,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
     QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox,
-    QGroupBox, QFormLayout as QF, QWidget as QW
+    QGroupBox, QFormLayout as QF, QWidget as QW, QLabel
 )
 
 from ...io.storage import list_comparators
@@ -60,9 +60,14 @@ class SessionTab(QWidget):
 
         self.btn_connect = QPushButton("Connecter"); self.btn_connect.setStyleSheet(BTN_PRIMARY_CSS)
         self.btn_disconnect = QPushButton("Déconnecter"); self.btn_disconnect.setStyleSheet(BTN_NEUTRAL_CSS); self.btn_disconnect.setEnabled(False)
+        # Indicateur visuel de statut connexion
+        self.lbl_conn_status = QLabel("● Déconnecté")
+        self.lbl_conn_status.setToolTip("Statut de la connexion au dispositif")
+        self.lbl_conn_status.setStyleSheet("color:#dc3545;font-weight:700;")  # rouge par défaut
 
         fconn.addRow("Port", QW()); fconn.itemAt(fconn.rowCount()-1, QF.FieldRole).widget().setLayout(pbar)
         fconn.addRow("Baudrate", self.combo_baud)
+        fconn.addRow("Statut", self.lbl_conn_status)
         hb = QHBoxLayout(); hb.addWidget(self.btn_connect); hb.addWidget(self.btn_disconnect); hb.addStretch()
         fconn.addRow("", QW()); fconn.itemAt(fconn.rowCount()-1, QF.FieldRole).widget().setLayout(hb)
 
@@ -105,6 +110,11 @@ class SessionTab(QWidget):
         self.reload_comparators()
         self._refresh_ports()
         self._refresh_from_store(session_store.current)
+        # Appliquer l'état de connexion initial
+        try:
+            self._on_connected_changed(serial_manager.is_open())
+        except Exception:
+            pass
 
     # ----- helpers -----
     def reload_comparators(self):
@@ -131,6 +141,12 @@ class SessionTab(QWidget):
     def _on_connected_changed(self, ok: bool):
         self.btn_connect.setEnabled(not ok)
         self.btn_disconnect.setEnabled(ok)
+        if ok:
+            self.lbl_conn_status.setText("● Connecté")
+            self.lbl_conn_status.setStyleSheet("color:#28a745;font-weight:700;")  # vert
+        else:
+            self.lbl_conn_status.setText("● Déconnecté")
+            self.lbl_conn_status.setStyleSheet("color:#dc3545;font-weight:700;")  # rouge
 
     def _refresh_from_store(self, s):
         # Bloque les signaux le temps de remplir

@@ -99,6 +99,7 @@ class SerialReaderThread:
         on_line: Callable[[str, Optional[float]], None],
         on_debug: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
+        on_raw: Optional[Callable[[bytes], None]] = None,
         *,
         regex_pattern: str = r"[-+]?\d+(?:[.,]\d+)?",
         decimal_comma: bool = False,
@@ -107,6 +108,7 @@ class SerialReaderThread:
         self._on_line = on_line
         self._on_debug = on_debug
         self._on_error = on_error
+        self._on_raw = on_raw
         self._stop = threading.Event()
         self._th: Optional[threading.Thread] = None
         self._buf = bytearray()
@@ -166,10 +168,42 @@ class SerialReaderThread:
         self._buf = bytearray(remainder)
 
     def _parse_float(self, text: str) -> Optional[float]:
+        # 1) Essai avec le motif configuré
         m = self._pattern.search(text)
-        if not m:
+        token = m.group(0) if m else None
+
+        # 2) Fallback robuste: tolère espace après signe et préfère un nombre avec partie entière si dispo
+        if token is None or token.lstrip(" +-").startswith((".", ",")) or " " in (token or ""):
+            candidates = re.findall(r"[+-]?\s*(?:\d*[.,]\d+|\d+)", text)
+            if candidates:
+                # Nettoyage (supprimer espaces internes avant conversion)
+                cleaned = [c.replace(" ", "") for c in candidates if c and c.strip()]
+                # Heuristique de sélection:
+                # - privilégier ceux avec au moins un chiffre avant la virgule/point
+                def has_int_part(s: str) -> bool:
+                    s2 = s.lstrip("+-")
+                    if "," in s2 or "." in s2:
+                        intp = s2.split("," if "," in s2 else ".")[0]
+                        return any(ch.isdigit() for ch in intp)
+                    return True  # nombres entiers
+                with_int = [s for s in cleaned if has_int_part(s)]
+                pool = with_int if with_int else cleaned
+                # - parmi eux, éviter 0/0.00 si d'autres existent
+                def magnitude(s: str) -> float:
+                    try:
+                        x = float(s.replace(",", "."))
+                        return abs(x)
+                    except Exception:
+                        return -1.0
+                nonzero = [s for s in pool if magnitude(s) > 0.0]
+                pool2 = nonzero if nonzero else pool
+                # - enfin, choisir le plus long (plus d'information)
+                token = max(pool2, key=len)
+
+        if not token:
             return None
-        token = m.group(0)
+
+        token = token.replace(" ", "")
         if self._decimal_comma:
             token = token.replace(",", ".")
         try:
@@ -182,6 +216,11 @@ class SerialReaderThread:
             while not self._stop.is_set():
                 chunk = self._conn.read_chunk()
                 if chunk:
+                    if self._on_raw:
+                        try:
+                            self._on_raw(chunk)
+                        except Exception:
+                            pass
                     self._buf.extend(chunk)
                     self._emit_lines_from_buffer()
                 else:

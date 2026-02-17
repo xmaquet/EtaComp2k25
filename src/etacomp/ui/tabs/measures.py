@@ -4,10 +4,10 @@ import time
 from typing import List, Dict, Optional, Tuple
 
 from PySide6.QtCore import QTimer, QCoreApplication
-from PySide6.QtGui import QColor, QBrush
+from PySide6.QtGui import QColor, QBrush, QTextCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QFormLayout, QPushButton,
-    QMessageBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem
+    QMessageBox, QTextEdit, QLabel, QTableWidget, QTableWidgetItem, QCheckBox
 )
 
 from ...models.session import MeasureSeries
@@ -66,7 +66,9 @@ class MeasuresTab(QWidget):
         v3 = QVBoxLayout(g_log)
         log_bar = QHBoxLayout()
         self.log_view = QTextEdit(); self.log_view.setReadOnly(True); self.log_view.setMaximumHeight(160)
+        self.chk_raw_debug = QCheckBox("Mode debug (flux brut)"); self.chk_raw_debug.setToolTip("Affiche le flux série brut, sans parsing ni normalisation (non actif par défaut).")
         self.btn_clear_log = QPushButton("Effacer le log")
+        log_bar.addWidget(self.chk_raw_debug)
         log_bar.addStretch(); log_bar.addWidget(self.btn_clear_log)
         v3.addWidget(self.log_view)
         v3.addLayout(log_bar)
@@ -117,6 +119,7 @@ class MeasuresTab(QWidget):
         self.btn_clear_log.clicked.connect(self._clear_log)
         self.btn_save_session.clicked.connect(self._save_session)
         self.btn_probe.clicked.connect(self._probe_3s)
+        self.chk_raw_debug.toggled.connect(self._toggle_raw_debug)
 
         # session store
         session_store.session_changed.connect(self._on_session_changed)
@@ -126,6 +129,7 @@ class MeasuresTab(QWidget):
         serial_manager.line_received.connect(lambda raw, val: self._on_line_from_serial(raw, val))
         serial_manager.debug.connect(lambda m: self.log_view.append(f"[DBG] {m}"))
         serial_manager.error.connect(lambda m: self.log_view.append(f"[ERR] {m}"))
+        serial_manager.raw.connect(self._on_raw_chunk)
 
     # ------------- helpers -------------
     def _safe_send_config(self):
@@ -222,6 +226,15 @@ class MeasuresTab(QWidget):
             QMessageBox.information(self, "Série", "Connecte d’abord le dispositif dans l’onglet Session.")
             return
         self._rebuild_from_session()
+        # Vérifier qu'il y a au moins 2 cibles (0 et au moins une valeur > 0)
+        if len(self.targets) < 2:
+            QMessageBox.information(
+                self,
+                "Configuration incomplète",
+                "Aucun profil de comparateur sélectionné avec des cibles > 0.\n\n"
+                "Sélectionne un comparateur dans l’onglet Session (Bibliothèque → 11 cibles dont 0)."
+            )
+            return
         self.campaign_running = True
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -259,6 +272,22 @@ class MeasuresTab(QWidget):
     # ------------- Logger & Probe -------------
     def _clear_log(self):
         self.log_view.clear()
+
+    def _toggle_raw_debug(self, enabled: bool):
+        try:
+            serial_manager.set_raw_debug(bool(enabled))
+            if enabled:
+                self.log_view.append("[DBG] Mode brut activé — affichage du flux sans parsing")
+            else:
+                self.log_view.append("[DBG] Mode brut désactivé")
+        except Exception as e:
+            self.log_view.append(f"[ERR] Raw debug: {e}")
+
+    def _on_raw_chunk(self, s: str):
+        if self.chk_raw_debug.isChecked():
+            # Afficher tel quel, sans normalisation
+            self.log_view.moveCursor(QTextCursor.End)
+            self.log_view.insertPlainText(s)
 
     def _probe_3s(self):
         if not serial_manager.is_open():
@@ -305,15 +334,16 @@ class MeasuresTab(QWidget):
         # Démarrage de cycle : exiger ~0 au début
         if self.waiting_zero:
             if self.current_phase_up and self.current_col == 0 and abs(value) <= self.ZERO_TOL:
-                self._write_current_cell(value)
+                wrote = self._write_current_cell(value)
                 self.waiting_zero = False
-                finished = self._advance_after_write()
-                if finished:
-                    self._stop_campaign()
-                else:
-                    mode, trig, eol = self._safe_send_config()
-                    if mode == "À la demande":
-                        serial_manager.send_text(trig, eol)
+                if wrote:
+                    finished = self._advance_after_write()
+                    if finished:
+                        self._stop_campaign()
+                    else:
+                        mode, trig, eol = self._safe_send_config()
+                        if mode == "À la demande":
+                            serial_manager.send_text(trig, eol)
                 self._update_status()
             else:
                 mode, trig, eol = self._safe_send_config()
@@ -323,14 +353,15 @@ class MeasuresTab(QWidget):
             return
 
         # Écriture normale
-        self._write_current_cell(value)
-        finished = self._advance_after_write()
-        if finished:
-            self._stop_campaign()
-        else:
-            mode, trig, eol = self._safe_send_config()
-            if mode == "À la demande":
-                serial_manager.send_text(trig, eol)
+        wrote = self._write_current_cell(value)
+        if wrote:
+            finished = self._advance_after_write()
+            if finished:
+                self._stop_campaign()
+            else:
+                mode, trig, eol = self._safe_send_config()
+                if mode == "À la demande":
+                    serial_manager.send_text(trig, eol)
         self._update_status()
 
     # ------------- Table & Store -------------
@@ -367,7 +398,12 @@ class MeasuresTab(QWidget):
         else:
             it.setBackground(QBrush())
 
-    def _write_current_cell(self, value: float):
+    def _write_current_cell(self, value: float) -> bool:
+        # Prendre la valeur absolue (certains bancs renvoient des valeurs négatives selon le sens)
+        try:
+            value = abs(float(value))
+        except Exception:
+            pass
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
         col = self.current_col
         it = self.table.item(row, col)
@@ -384,6 +420,8 @@ class MeasuresTab(QWidget):
                 readings.pop()
             self._push_series_to_store()
             self._recompute_means()
+            return True
+        return False
 
     def _push_series_to_store(self):
         ordered = [self.by_target[t] for t in self.targets]
@@ -489,6 +527,10 @@ class MeasuresTab(QWidget):
 
     # ------------- Réactions session -------------
     def _on_session_changed(self, _s):
+        # Ne pas reconstruire la table en plein enregistrement d'une campagne,
+        # sinon la campagne passe à l'état "arrêtée" à chaque nouvelle valeur.
+        if self.campaign_running:
+            return
         self._rebuild_from_session()
 
     # ------------- Nettoyage -------------

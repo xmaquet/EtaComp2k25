@@ -12,6 +12,7 @@ from ...config.prefs import load_prefs, save_prefs, Preferences
 from ...config.defaults import DEFAULT_THEME
 from ...config.paths import get_data_dir
 from .settings_rules import SettingsRulesTab
+from .parameters import ParametersTab
 
 
 class SettingsTab(QWidget):
@@ -129,6 +130,10 @@ class SettingsTab(QWidget):
         # Onglet Règles de tolérances
         self.rules_tab = SettingsRulesTab()
         self.tabs.addTab(self.rules_tab, "Règles")
+
+        # Onglet TESA ASCII (profil d'envoi/parse du dispositif)
+        self.tesa_tab = ParametersTab()
+        self.tabs.addTab(self.tesa_tab, "TESA ASCII")
 
     # ====== Slots ======
     def on_theme_changed(self, theme: str):

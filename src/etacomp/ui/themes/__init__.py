@@ -27,6 +27,25 @@ QLabel, QCheckBox, QRadioButton, QGroupBox {
 QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled {
     color: VAR_FG_DISABLED;
 }
+/* Indicateurs (cases à cocher / boutons radio) */
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px; height: 16px;
+    border: 1px solid VAR_BORDER;
+    background: VAR_INPUT_BG;
+    margin-right: 6px;
+}
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {
+    background: ACCENT;
+    border: 1px solid ACCENT;
+}
+QCheckBox::indicator:unchecked, QRadioButton::indicator:unchecked {
+    background: VAR_INPUT_BG;
+    border: 1px solid VAR_BORDER;
+}
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    background: VAR_PANEL_BG;
+    border: 1px solid VAR_BORDER;
+}
 
 /* ====== Onglets ====== */
 QTabBar::tab {
