@@ -60,10 +60,11 @@ def draw_kv_table(
         w1 = label_width_mm * mm
     else:
         w1 = w * col_ratio
-    canvas_obj.setFont("Helvetica", 8)
     val_w_max = w - w1 if w > w1 else 30 * mm  # largeur disponible pour la valeur
     for i, (label, value) in enumerate(rows):
+        canvas_obj.setFont("Helvetica-Bold", 8)
         canvas_obj.drawString(x, y - i * line_h, _none_str(label))
+        canvas_obj.setFont("Helvetica", 8)
         raw = _none_str(value) if value is not None else "—"
         val_str = str(raw)
         # Tronquer la valeur si elle dépasse la largeur disponible
@@ -75,6 +76,36 @@ def draw_kv_table(
     return len(rows) * line_h
 
 
+def draw_kv_row_with_wrap(
+    canvas_obj,
+    x: float,
+    y: float,
+    w: float,
+    label: str,
+    value: Any,
+    label_width_mm: float,
+) -> float:
+    """
+    Dessine une ligne label/valeur avec retour à la ligne pour la valeur.
+    Retourne la hauteur utilisée.
+    """
+    canvas_obj.setFont("Helvetica-Bold", 8)
+    canvas_obj.drawString(x, y, _none_str(label))
+    canvas_obj.setFont("Helvetica", 8)
+    val_str = _none_str(value) if value is not None else "—"
+    val_w = w - label_width_mm * mm
+    h_val = draw_paragraph(canvas_obj, x + label_width_mm * mm, y, val_w, val_str, font_size=8)
+    return max(4.5 * mm, h_val)
+
+
+def _measure_detenteur_height(canvas_obj, w: float, label_width_mm: float, value: Any) -> float:
+    """Mesure la hauteur de la ligne Détenteur avec valeur wrappée."""
+    val_str = _none_str(value) if value is not None else "—"
+    val_w = w - label_width_mm * mm
+    h_val = draw_paragraph(canvas_obj, 0, 0, val_w, val_str, font_size=8, measure_only=True)
+    return max(4.5 * mm, h_val)
+
+
 def draw_paragraph(
     canvas_obj,
     x: float,
@@ -82,8 +113,9 @@ def draw_paragraph(
     w: float,
     text: str,
     font_size: int = 8,
+    measure_only: bool = False,
 ) -> float:
-    """Dessine un paragraphe avec wrap. Retourne la hauteur utilisée."""
+    """Dessine un paragraphe avec wrap. Retourne la hauteur utilisée. Si measure_only, ne dessine pas."""
     if not text or not text.strip():
         return 0
     line_h = font_size * 0.4 * mm
@@ -100,6 +132,8 @@ def draw_paragraph(
             current = [word]
     if current:
         lines.append(" ".join(current))
+    if measure_only:
+        return len(lines) * line_h
     canvas_obj.setFont("Helvetica", font_size)
     for i, line in enumerate(lines):
         canvas_obj.drawString(x, y - i * line_h, line[:150])
@@ -157,6 +191,9 @@ def _build_error_plot_png(
         ax.axhline(-emt_um, color="red", linewidth=0.6, linestyle=":")
     ax.set_ylabel("Erreur (µm)")
     ax.set_xlabel("Cible (mm)")
+    if xs:
+        ax.set_xticks(xs)
+        ax.set_xticklabels([f"{x:.1f}" for x in xs])
     ax.legend(loc="best", fontsize=7)
     ax.tick_params(axis="both", labelsize=7)
     fig.tight_layout()
@@ -203,21 +240,25 @@ def export_pdf(
     """
     from ..config.paths import get_data_dir
     from ..core.session_adapter import build_session_from_runtime
-    from ..io.storage import get_default_banc_etalon, list_comparators
+    from ..io.storage import get_default_banc_etalon, list_comparators, list_bancs_etalon
 
     logger.info("Export PDF : construction SessionV2")
     v2 = build_session_from_runtime(rt_session)
     now = datetime.now()
-    doc_ref = f"CV{now.strftime('%y%m%d')}-{doc_no:02d}"
+    doc_ref = f"{now.strftime('%y%m%d')}-{doc_no:02d}"
     logger.info("Export PDF : n° document %s", doc_ref)
 
-    # Chemin de sortie
+    # Chemin de sortie (ne pas écraser un fichier existant)
     if output_path is None:
         exports_dir = get_data_dir() / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)
         comp_ref = _none_str(rt_session.comparator_ref).replace(" ", "_") or "sans_ref"
-        ts = now.strftime("%Y%m%d_%H%M%S")
-        output_path = exports_dir / f"{comp_ref}_{ts}_{doc_ref}.pdf"
+        base_name = f"{comp_ref}_{doc_ref}.pdf"
+        output_path = exports_dir / base_name
+        suffix = 1
+        while output_path.exists():
+            output_path = exports_dir / f"{comp_ref}_{doc_ref}_{suffix}.pdf"
+            suffix += 1
 
     logger.info("Export PDF : écriture vers %s", output_path)
     c = canvas.Canvas(str(output_path), pagesize=A4)
@@ -229,12 +270,16 @@ def export_pdf(
     pad = 3 * mm
 
     # ---- A. CARTOUCHE TITRE ----
+    header_h = 35 * mm
     c.setFillColor(colors.HexColor("#e8e8e8"))
-    c.rect(MARGIN_LR, y - 25 * mm, CONTENT_W, 25 * mm, fill=1, stroke=1)
+    c.rect(MARGIN_LR, y - header_h, CONTENT_W, header_h, fill=1, stroke=1)
     c.setFillColor(colors.black)
 
-    # Logo à gauche (transparence PNG préservée si présente)
+    # Logo à gauche : centré en hauteur
     img_path = (export_config.image_path or "").strip()
+    logo_w, logo_h = 18 * mm, 18 * mm
+    logo_zone_h = logo_h + 6 * mm
+    logo_bottom = y - header_h + (header_h - logo_zone_h) / 2
     if img_path:
         try:
             p = Path(img_path)
@@ -243,21 +288,32 @@ def export_pdf(
                 with open(p, "rb") as f:
                     logo = ImageReader(f)
                 c.drawImage(
-                    logo, MARGIN_LR + pad, y - 22 * mm,
-                    width=18 * mm, height=18 * mm,
+                    logo, MARGIN_LR + pad, logo_bottom,
+                    width=logo_w, height=logo_h,
                     mask="auto",
                 )
         except Exception:
             pass
 
-    # Titre
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(MARGIN_LR + 22 * mm, y - 8 * mm, _none_str(export_config.document_title))
-    c.setFont("Helvetica", 9)
+    # Entité en gras au-dessus de l'image, alignée avec le titre
     if export_config.entite:
-        c.drawString(MARGIN_LR + 22 * mm, y - 12 * mm, _none_str(export_config.entite))
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(MARGIN_LR + pad, y - 10 * mm, _none_str(export_config.entite))
 
-    y -= 30 * mm
+    # Titre centré
+    c.setFont("Helvetica-Bold", 16)
+    title_str = _none_str(export_config.document_title)
+    title_w = c.stringWidth(title_str, "Helvetica-Bold", 16)
+    c.drawString(MARGIN_LR + (CONTENT_W - title_w) / 2, y - 10 * mm, title_str)
+
+    # Référence du document en bas de l'en-tête
+    if export_config.document_reference:
+        c.setFont("Helvetica", 9)
+        ref_str = _none_str(export_config.document_reference)
+        ref_w = c.stringWidth(ref_str, "Helvetica", 9)
+        c.drawString(MARGIN_LR + (CONTENT_W - ref_w) / 2, y - header_h + 5 * mm, ref_str)
+
+    y -= header_h
 
     # ---- B. CARTOUCHE SESSION (2 colonnes) ----
     comp = None
@@ -268,8 +324,6 @@ def export_pdf(
                 comp = c_obj
                 break
 
-    range_val = getattr(comp, "range_type", None) if comp else None
-    family = getattr(range_val, "value", str(range_val)) if range_val else "—"
     period = getattr(comp, "periodicite_controle_mois", 12) if comp else 12
     session_date = getattr(rt_session, "date", None) or now
     if hasattr(session_date, "strftime"):
@@ -300,33 +354,53 @@ def export_pdf(
     banc = get_default_banc_etalon()
     banc_ref_session = getattr(rt_session, "banc_ref", None)
     banc_display = _none_str(banc_ref_session) if banc_ref_session else (banc.reference if banc else "—")
+    banc_obj = banc
+    if banc_ref_session:
+        for b in list_bancs_etalon():
+            if b.reference == banc_ref_session:
+                banc_obj = b
+                break
+    banc_date_validite = getattr(banc_obj, "date_validite", None) if banc_obj else None
 
     rows_left = [
         ("Référence comparateur", comp_ref),
-        ("Famille", family),
+        ("Date de validité de l'étalon", banc_date_validite),
         ("Marque / Fabricant", getattr(comp, "manufacturer", None) if comp else None),
         ("Course (mm)", f"{comp.course:.2f}" if comp else "—"),
         ("Périodicité contrôle (mois)", str(period) if comp else "—"),
         ("Date prochaine vérif.", next_check_str),
     ]
-    rows_right = [
+    rows_right_top = [
         ("Température (°C)", getattr(rt_session, "temperature_c", None)),
-        ("Détenteur", _get_detenteur_display(getattr(rt_session, "holder_ref", None))),
         ("Référence étalon", banc_display),
         ("Humidité (%)", getattr(rt_session, "humidity_pct", None)),
     ]
+    detenteur_val = _get_detenteur_display(getattr(rt_session, "holder_ref", None))
 
-    # Alignement fixe : label 40 mm pour colonnes gauche et droite (valeurs alignées)
-    label_w_mm = 40
-    half_w = CONTENT_W / 2 - pad
-    h1 = draw_kv_table(c, MARGIN_LR + pad, y, half_w, rows_left, label_width_mm=label_w_mm)
-    draw_kv_table(c, MARGIN_LR + CONTENT_W / 2 + 4 * mm, y, half_w - 4 * mm, rows_right, label_width_mm=label_w_mm)
-    block_h_b = max(h1, 4 * len(rows_right) * mm) + 10 * mm
+    # Bloc session : rect d'abord, contenu à l'intérieur (éviter texte hors cadre)
+    session_pad = 5 * mm
+    session_w = CONTENT_W - 2 * session_pad
+    col_gap = 6 * mm
+    half_w = (session_w - col_gap) / 2
+    label_w_mm = 38
+    x_left = MARGIN_LR + session_pad
+    x_right = MARGIN_LR + session_pad + half_w + col_gap
+
+    h_right_top = len(rows_right_top) * 4.5 * mm
+    h_detenteur = _measure_detenteur_height(c, half_w, label_w_mm, detenteur_val)
+    content_h = max(6 * 4.5 * mm, h_right_top + h_detenteur)
+    block_h_b = content_h + 2 * session_pad
     y -= block_h_b
     c.rect(MARGIN_LR, y, CONTENT_W, block_h_b, fill=0, stroke=1)
+    y_content = y + block_h_b - session_pad
+    h1 = draw_kv_table(c, x_left, y_content, half_w, rows_left, label_width_mm=label_w_mm)
+    draw_kv_table(c, x_right, y_content, half_w, rows_right_top, label_width_mm=label_w_mm)
+    y_detenteur = y_content - h_right_top
+    draw_kv_row_with_wrap(c, x_right, y_detenteur, half_w, "Détenteur", detenteur_val, label_w_mm)
     y -= block_gap
+    y -= 6 * mm  # espace supplémentaire avant courbe d'étalonnage
 
-    # ---- C. BLOC COURBES D'ERREUR ----
+    # ---- C. BLOC COURBE D'ÉTALONNAGE ----
     emt_limit = None
     if verdict and verdict.limits and "Emt" in verdict.limits:
         emt_limit = verdict.limits["Emt"]
@@ -339,15 +413,18 @@ def export_pdf(
     )
     plot_h = 45 * mm
     plot_w = min(CONTENT_W, 130 * mm)
-
-    block_c_h = 6 * mm + plot_h + 6 * mm
-    draw_block_title(c, MARGIN_LR, y, CONTENT_W, "Courbe des erreurs")
-    y -= 6 * mm
-    add_plot_image(c, MARGIN_LR, y, plot_w, plot_h, plot_png)
-    c.setFont("Helvetica", 7)
-    c.drawString(MARGIN_LR, y - plot_h - 4 * mm, "Montée (•) / Descente (■) — Erreur en µm")
-    y -= plot_h + 6 * mm
+    block_c_pad = 4 * mm
+    block_c_h = block_c_pad + 5 * mm + plot_h + 6 * mm
+    y -= block_c_h
     c.rect(MARGIN_LR, y, CONTENT_W, block_c_h, fill=0, stroke=1)
+    y_title = y + block_c_h - block_c_pad
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(MARGIN_LR + block_c_pad, y_title, "Courbe d'étalonnage")
+    y_plot = y_title - 5 * mm
+    plot_x = MARGIN_LR + (CONTENT_W - plot_w) / 2
+    add_plot_image(c, plot_x, y_plot, plot_w, plot_h, plot_png)
+    c.setFont("Helvetica", 7)
+    c.drawString(MARGIN_LR + block_c_pad, y_plot - plot_h - 4 * mm, "Montée (•) / Descente (■) — Erreur en µm")
     y -= block_gap
 
     # ---- D. BLOC PLACEHOLDER ----
@@ -363,10 +440,12 @@ def export_pdf(
     # ---- E. BLOC OBSERVATIONS ----
     obs = getattr(rt_session, "observations", None) or getattr(v2, "notes", None) or ""
     obs_str = _none_str(obs)
-    draw_block_title(c, MARGIN_LR, y, CONTENT_W, "Observations")
-    y -= 5 * mm
+    title_pad = 3 * mm
+    y -= title_pad
+    draw_block_title(c, MARGIN_LR + title_pad, y, CONTENT_W - 2 * title_pad, "Observations")
+    y -= 5 * mm + title_pad
     h_obs = draw_paragraph(c, MARGIN_LR + pad, y, CONTENT_W - 2 * pad, obs_str)
-    block_e_h = 5 * mm + max(h_obs, 5 * mm) + pad
+    block_e_h = 2 * title_pad + 5 * mm + max(h_obs, 5 * mm) + pad
     y -= max(h_obs, 5 * mm)
     c.rect(MARGIN_LR, y, CONTENT_W, block_e_h, fill=0, stroke=1)
     y -= block_gap
@@ -387,7 +466,7 @@ def export_pdf(
     c.rect(MARGIN_LR, y, CONTENT_W, block_f_h, fill=0, stroke=1)
     y -= block_gap
 
-    # ---- G. BLOC SIGNATURE (op+date à gauche, zone blanche à droite pour signature) ----
+    # ---- G. BLOC SIGNATURE (op+date à gauche, zone « signature » à droite) ----
     op = _none_str(getattr(rt_session, "operator", None))
     date_str = session_dt.strftime("%d/%m/%Y") if hasattr(session_dt, "strftime") else "—"
     y -= 3 * mm
@@ -395,17 +474,20 @@ def export_pdf(
     line_y = y
     c.drawString(MARGIN_LR + pad, line_y, f"Opérateur : {op}")
     c.drawString(MARGIN_LR + pad, line_y - 5 * mm, f"Date vérification : {date_str}")
+    c.drawString(PAGE_W - MARGIN_LR - 55 * mm, line_y - 4 * mm, "Signature")
     block_g_h = 18 * mm
     y -= block_g_h
     c.rect(MARGIN_LR, y, CONTENT_W, block_g_h + 5 * mm, fill=0, stroke=1)
     y -= block_gap
 
-    # ---- H. BLOC NORMES (texte en pleine largeur) ----
+    # ---- H. BLOC NORMES (texte pleine largeur avec marges internes) ----
     normes = _none_str(export_config.texte_normes)
-    draw_block_title(c, MARGIN_LR, y, CONTENT_W, "Références / Normes")
-    y -= 5 * mm
-    h_norm = draw_paragraph(c, MARGIN_LR, y, CONTENT_W, normes)
-    block_h_h = 5 * mm + max(h_norm, 8 * mm) + pad
+    title_pad = 3 * mm
+    y -= title_pad
+    draw_block_title(c, MARGIN_LR + title_pad, y, CONTENT_W - 2 * title_pad, "Références / Normes")
+    y -= 5 * mm + title_pad
+    h_norm = draw_paragraph(c, MARGIN_LR + pad, y, CONTENT_W - 2 * pad, normes)
+    block_h_h = 2 * title_pad + 5 * mm + max(h_norm, 8 * mm) + pad
     y -= max(h_norm, 8 * mm)
     c.rect(MARGIN_LR, y, CONTENT_W, block_h_h, fill=0, stroke=1)
 

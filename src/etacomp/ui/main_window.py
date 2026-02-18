@@ -13,6 +13,7 @@ from .tabs.fidelity_deviations import FidelityDeviationsTab
 from .tabs.finalization import FinalizationTab
 from .tabs.calibration_curve import CalibrationCurveTab
 from ..config.defaults import APP_TITLE
+from .. import __version__
 from ..config.prefs import load_prefs
 from .themes import apply_theme
 from .help_dialog import HelpDialog
@@ -117,8 +118,6 @@ class MainWindow(QMainWindow):
 
     # ===== À propos =====
     def _show_about_dialog(self):
-        version = "v0.1.0"
-
         dialog = QDialog(self)
         dialog.setWindowTitle(f"À propos — {APP_TITLE}")
         dialog.resize(420, 340)
@@ -137,7 +136,7 @@ class MainWindow(QMainWindow):
         texte = (
             f"<b>{APP_TITLE}</b><br>"
             "Outil de gestion de sessions de mesure et de comparateurs.<br><br>"
-            f"<b>Version :</b> {version}<br>"
+            f"<b>Version :</b> {__version__}<br>"
             "<b>Auteur :</b> 14eBSMAT / ICDD MAQUET Xavier<br>"
             "<b>Tech :</b> PySide6, JSON, UI modulaire<br><br>"
             "© 2025 — Tous droits réservés."
