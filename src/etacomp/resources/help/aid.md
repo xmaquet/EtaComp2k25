@@ -1,6 +1,6 @@
-# Aide EtaComp
+# Aide EtaComp2K25
 
-> Version : 2K25 — Module de vérification des comparateurs à tige rentrante
+> Version 1.0.0 — Module de vérification des comparateurs à tige rentrante
 
 ---
 
@@ -16,7 +16,7 @@ EtaComp offre les fonctions suivantes :
 * définition d’un profil de comparateur avec ses caractéristiques principales et les points de mesure,
 * conduite d’une campagne de mesures dans le sens de montée puis dans le sens de descente, selon plusieurs séries,
 * calcul des différentes erreurs (erreur totale, erreur locale, erreur de fidélité, erreur d’hystérésis),
-* génération d’un rapport de vérification et export des résultats.
+* génération d’un constat de vérification et export PDF.
 
 > **Conditions préalables** : la vérification doit être réalisée dans un laboratoire stabilisé en température (20 °C ± 2 °C). L’opérateur doit également préparer l’instrument en le nettoyant, en vérifiant qu’il n’existe pas de point dur, et en s’assurant que la touche de contact est en bon état.
 
@@ -119,7 +119,7 @@ Ensuite, EtaComp identifie le point et le sens où l’erreur totale est la plus
 
 * Courbe d’étalonnage dans les deux sens,
 * Tableau récapitulatif des écarts et des statistiques,
-* Rapport de vérification exportable en PDF ou Excel, indiquant l’aptitude ou non du comparateur selon les tolérances configurées.
+* Rapport de vérification exportable en PDF, indiquant la conformité ou non du comparateur selon les tolérances configurées.
 
 ---
 
@@ -127,7 +127,7 @@ Ensuite, EtaComp identifie le point et le sens où l’erreur totale est la plus
 
 ### 5.1 Principe
 
-Un comparateur est déclaré **apte** si toutes les erreurs calculées (totale, locale, fidélité, hystérésis) sont inférieures aux valeurs maximales tolérées fixées pour sa famille (comparateur à course normale, grande course, faible course, ou course limitée). Si au moins une valeur dépasse la tolérance, l’instrument est considéré comme **inapte**.
+Un comparateur est déclaré **conforme** si toutes les erreurs calculées (totale, locale, fidélité, hystérésis) sont inférieures aux valeurs maximales tolérées fixées pour sa famille (comparateur à course normale, grande course, faible course, ou course limitée). Si au moins une valeur dépasse la tolérance, l’instrument est considéré comme **non conforme**.
 
 ### 5.2 Tolérances maximales admissibles
 
@@ -162,46 +162,42 @@ EtaComp utilise un fichier `rules/tolerances.json` pour stocker ces règles. Le 
 
 ## 6) Exports
 
-EtaComp permet d’exporter :
+EtaComp2K25 permet d’exporter :
 
-* les mesures brutes au format CSV,
-* les résultats au format Excel avec plusieurs feuilles (mesures, courbes, synthèse),
-* un constat de vérification signé au format PDF qui inclut l’identité, les conditions, les résultats et la conclusion.
+* un **constat de vérification** au format PDF depuis l'onglet **Finalisation** (bouton « Exporter PDF »). Le rapport inclut : l'en-tête (titre, entité, logo, référence), les informations de session (comparateur, étalon, date de validité de l'étalon, détenteur), la courbe d'étalonnage (erreurs en µm, cibles en mm), le verdict (Conforme / Non-conforme), les observations, la signature et les références normatives.
+
+Le fichier est enregistré dans `~/.EtaComp2K25/exports/` au nom `{comparateur}_{AAMMJJ-n°}.pdf`. Si un fichier existe déjà, un suffixe `_1`, `_2`, etc. est ajouté pour éviter l'écrasement.
+
 
 ---
 
 ## 7) Interface (onglets)
 
-* **Session** : saisie des conditions, sélection du comparateur, lancement des séries, commandes liées au dispositif TESA.
+* **Session** : saisie des conditions, sélection du comparateur et du banc étalon, lancement des séries, commandes liées au dispositif TESA.
 * **Mesures** : tableau des résultats avec les séries de montée et de descente superposées et les moyennes, graphiques des écarts.
-* **Écarts de fidélité** *(nouvel onglet)* : analyse détaillée de la série de cinq mesures au point critique.
-* **Courbe d’étalonnage** *(nouvel onglet)* : visualisation de la courbe montée / descente et des écarts associés.
-* **Finalisation** *(nouvel onglet)* : contrôle de complétude, application des tolérances et génération du constat.
+* **Écarts de fidélité** : analyse détaillée de la série de cinq mesures au point critique.
+* **Courbe d’étalonnage** : visualisation de la courbe montée / descente et des écarts associés.
+* **Finalisation** : contrôle de complétude, application des tolérances et génération du constat.
 * **Bibliothèque des comparateurs** : création, modification et suppression des profils ; chaque ligne regroupe les champs principaux et les valeurs de déroulé si présentes.
 * **Paramètres** : configuration du matériel TESA, définition des tolérances, choix des thèmes d’interface, chemins d’export.
 
 ### 7.1 Écarts de fidélité (analyse des cinq mesures)
 
-Cet onglet présentera, pour le point et le sens où l’erreur totale est maximale :
+Cet onglet affiche, pour le point et le sens où l’erreur totale est maximale :
 
 * la **liste des cinq relevés** (valeurs individuelles et temps d’acquisition),
 * la **moyenne** et l’**écart-type** calculés selon la définition de l’erreur de fidélité,
 * des **indicateurs visuels** (barres ou jauges) pour situer la fidélité par rapport à la tolérance,
-* un **graphique** simple (série temporelle ou histogramme) pour apprécier la dispersion,
-* des **messages d’aide** à l’interprétation (par exemple « dispersion élevée, vérifier la répétabilité »),
 * un **lien** pour revenir à la série concernée dans l’onglet Mesures si une reprise est nécessaire.
 
-> Statut : fonctionnalités à implémenter. L’onglet affichera des données dès que la série de fidélité aura été réalisée.
+L’onglet affiche ces données dès que la série de fidélité a été réalisée.
 
 ### 7.2 Courbe d’étalonnage (visualisation)
 
-Cet onglet proposera :
+Cet onglet affiche :
 
-* la **courbe montée** et la **courbe descente** tracées l’une sur l’autre,
-* le **nuage des écarts** (mesure moins référence) en fonction des points cibles,
-* l’affichage de l’**hystérésis** point par point (différence montée vs descente),
-* des **curseurs** ou un **survol** pour lire précisément les valeurs,
-* des **options d’export** (image et données) pour intégration au rapport,
+* la **courbe montée** et la **courbe descente** (erreurs ou mesures) tracées en fonction des cibles (mm),
+* le **tableau récapitulatif** (cibles, moyennes montée/descente, erreurs en µm, hystérésis),
 * des **seuils visuels** correspondant aux tolérances actives pour une lecture immédiate.
 
 > Les graphiques (erreurs en µm ou mesures en mm) se mettent à jour via le bouton Rafraîchir. Seuils ±Emt affichés si règle disponible.
@@ -212,16 +208,16 @@ Cet onglet guidera l’opérateur jusqu’à la conclusion :
 
 * **contrôle de complétude** (toutes les séries effectuées, valeurs présentes, dates et signatures),
 * **application des tolérances** en fonction de la famille, de la course et de la valeur d’échelon (règles chargées depuis `rules/tolerances.json`),
-* **diagnostic global** (apte ou inapte) avec explication des dépassements éventuels,
+* **diagnostic global** (Conforme ou Non-conforme) avec explication des dépassements éventuels,
 * **champ d’observations** et **synthèse** destinée au constat,
-* **génération** du rapport (PDF/Excel), sauvegarde des fichiers et **archivage** du projet,
+* **génération** du constat PDF, sauvegarde des fichiers et **archivage** du projet,
 * rappel des **bonnes pratiques** (apposer l’étiquette, consigner la décision, notifier le demandeur si nécessaire).
 
-> Statut : en cours de définition. L’onglet restera accessible en lecture après la génération pour permettre une réémission des documents si besoin.
+> L’onglet restera accessible en lecture après la génération pour permettre une réémission du constat PDF si besoin.
 
 ### 7.4 Paramètres ▸ Règles (pourquoi et comment)
 
-Cet onglet sert à **définir les tolérances** qui permettront au logiciel de conclure si un comparateur est **apte** ou **inapte** à l’issue des mesures. Les règles sont utilisées dans les onglets **Mesures**, **Écarts de fidélité**, **Courbe d’étalonnage** (pour afficher des seuils) et **Finalisation** (pour le verdict et la justification).
+Cet onglet sert à **définir les tolérances** qui permettront au logiciel de conclure si un comparateur est **conforme** ou **non conforme** à l’issue des mesures. Les règles sont utilisées dans les onglets **Mesures**, **Écarts de fidélité**, **Courbe d’étalonnage** (pour afficher des seuils) et **Finalisation** (pour le verdict et la justification).
 
 #### 7.4.1 Ce que couvre une « règle »
 
@@ -309,5 +305,4 @@ Les règles sont enregistrées dans le fichier `rules/tolerances.json`. Vous pou
 
 ### Annexes
 
-* Glossaire : montée, descente, erreur totale, erreur locale, fidélité, hystérésis, cible, étendue.
-* Modèle de constat : voir le fichier *Constat\_Vérification\_EtaComp.xlsx* fourni avec l’application.
+* Glossaire : montée, descente, erreur totale, erreur locale, fidélité, hystérésis, cible, étendue, conforme, non conforme.
