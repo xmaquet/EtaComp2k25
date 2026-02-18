@@ -32,7 +32,7 @@ class ToleranceRule:
     course_min: Optional[float] = None  # mm - seulement pour normale/grande
     course_max: Optional[float] = None  # mm - seulement pour normale/grande
     Emt: float = 0.0  # mm - Erreur de mesure totale
-    Eml: float = 0.0  # mm - Erreur de mesure locale
+    Eml: Optional[float] = None  # mm - Erreur de mesure locale (optionnelle pour faible/limitée)
     Ef: float = 0.0   # mm - Erreur de fidélité
     Eh: float = 0.0   # mm - Erreur d'hystérésis
 
@@ -48,10 +48,12 @@ class ToleranceRule:
             if self.course_min < 0 or self.course_max < 0:
                 raise ValueError("course_min et course_max doivent être >= 0")
         
-        # Vérifier que les limites de tolérance sont >= 0
-        for name, val in [("Emt", self.Emt), ("Eml", self.Eml), ("Ef", self.Ef), ("Eh", self.Eh)]:
+        # Vérifier que les limites de tolérance sont >= 0 (Eml optionnelle)
+        for name, val in [("Emt", self.Emt), ("Ef", self.Ef), ("Eh", self.Eh)]:
             if val < 0:
                 raise ValueError(f"{name} doit être >= 0 (actuel: {val})")
+        if self.Eml is not None and self.Eml < 0:
+            raise ValueError(f"Eml doit être >= 0 (actuel: {self.Eml})")
 
     def matches(self, graduation: float, course: Optional[float] = None) -> bool:
         """Vérifie si cette règle s'applique à graduation/course."""
@@ -117,17 +119,40 @@ class ToleranceRuleEngine:
             return
         
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            self.rules.clear()
-            
-            for family_str, rules_list in data.items():
+            raw = path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            # Réinitialiser avec les familles attendues
+            self.rules = {"normale": [], "grande": [], "faible": [], "limitee": []}
+
+            def _norm_family(k: str) -> str:
+                k2 = (k or "").strip().lower().lstrip("\ufeff")
+                mapping = {
+                    "limitée": "limitee",
+                    "limitée ": "limitee",
+                }
+                return mapping.get(k2, k2)
+
+            for family_key, rules_list in data.items():
+                family_str = _norm_family(family_key)
                 if family_str not in self.rules:
-                    raise ValueError(f"Famille inconnue: {family_str}")
-                
-                self.rules[family_str] = []
+                    raise ValueError(f"Famille inconnue: {family_key}")
+                bucket = []
                 for rule_dict in rules_list:
-                    rule = ToleranceRule(**rule_dict)
-                    self.rules[family_str].append(rule)
+                    # Eml optionnelle : si absente, laisser None
+                    if "Eml" not in rule_dict:
+                        rule = ToleranceRule(
+                            graduation=rule_dict["graduation"],
+                            course_min=rule_dict.get("course_min"),
+                            course_max=rule_dict.get("course_max"),
+                            Emt=rule_dict.get("Emt", 0.0),
+                            Ef=rule_dict.get("Ef", 0.0),
+                            Eh=rule_dict.get("Eh", 0.0),
+                            Eml=None,
+                        )
+                    else:
+                        rule = ToleranceRule(**rule_dict)
+                    bucket.append(rule)
+                self.rules[family_str] = bucket
                     
         except Exception as e:
             raise ValueError(f"Impossible de charger les règles depuis {path}: {e}")
@@ -141,10 +166,12 @@ class ToleranceRuleEngine:
                 rule_dict = {
                     "graduation": rule.graduation,
                     "Emt": rule.Emt,
-                    "Eml": rule.Eml,
                     "Ef": rule.Ef,
                     "Eh": rule.Eh,
                 }
+                # Inclure Eml seulement si présente
+                if rule.Eml is not None:
+                    rule_dict["Eml"] = rule.Eml
                 # Ajouter course_min/max seulement si présents
                 if rule.course_min is not None:
                     rule_dict["course_min"] = rule.course_min
@@ -168,11 +195,8 @@ class ToleranceRuleEngine:
                 except ValueError as e:
                     errors.append(f"{get_family_display_name(family)}[{i+1}]: {e}")
             
-            # Vérifier les chevauchements
-            for i, rule1 in enumerate(rules_list):
-                for j, rule2 in enumerate(rules_list[i+1:], i+1):
-                    if rule1.overlaps(rule2):
-                        errors.append(f"{get_family_display_name(family)}: chevauchement entre règles {i+1} et {j+1}")
+            # Ne plus signaler les chevauchements : l'intervalle strict est géré par le moteur au matching
+            # (On conserve la validation individuelle uniquement.)
             
             # Vérifications spécifiques par famille
             if family in ("normale", "grande"):
@@ -275,40 +299,27 @@ def get_default_rules_path() -> Path:
 
 
 def create_default_rules() -> ToleranceRuleEngine:
-    """Crée un moteur avec des règles par défaut selon les spécifications."""
+    """Crée un moteur avec des règles par défaut conformes au tableau fourni.
+    Note: Eml absente pour 'faible' et 'limitée'."""
     engine = ToleranceRuleEngine()
-    
-    # Règles par défaut selon l'exemple "bouchon"
-    engine.rules["normale"] = [
-        ToleranceRule(
-            graduation=0.01, course_min=0.0, course_max=10.0,
-            Emt=0.013, Eml=0.010, Ef=0.003, Eh=0.010
-        ),
-        ToleranceRule(
-            graduation=0.01, course_min=10.0, course_max=20.0,
-            Emt=0.015, Eml=0.012, Ef=0.003, Eh=0.012
-        )
+    base_normale = [
+        ToleranceRule(graduation=0.001, course_min=0.0,  course_max=1.0,   Emt=0.005, Eml=0.003, Ef=0.00025, Eh=0.002),
+        ToleranceRule(graduation=0.001, course_min=1.0,  course_max=10.0,  Emt=0.010, Eml=0.003, Ef=0.00025, Eh=0.002),
+        ToleranceRule(graduation=0.01,  course_min=0.0,  course_max=5.0,   Emt=0.015, Eml=0.010, Ef=0.0015,  Eh=0.006),
+        ToleranceRule(graduation=0.01,  course_min=5.0,  course_max=10.0,  Emt=0.015, Eml=0.010, Ef=0.0025,  Eh=0.010),
+        ToleranceRule(graduation=0.01,  course_min=10.0, course_max=30.0,  Emt=0.020, Eml=0.010, Ef=0.005,   Eh=0.010),
+        ToleranceRule(graduation=0.01,  course_min=30.0, course_max=50.0,  Emt=0.025, Eml=0.010, Ef=0.005,   Eh=0.010),
+        ToleranceRule(graduation=0.01,  course_min=50.0, course_max=100.0, Emt=0.030, Eml=0.015, Ef=0.005,   Eh=0.020),
+        ToleranceRule(graduation=0.1,   course_min=0.0,  course_max=30.0,  Emt=0.150, Eml=0.100, Ef=0.015,   Eh=0.060),
     ]
-    
-    engine.rules["grande"] = [
-        ToleranceRule(
-            graduation=0.01, course_min=20.0, course_max=30.0,
-            Emt=0.025, Eml=0.020, Ef=0.005, Eh=0.020
-        )
-    ]
-    
+    engine.rules["normale"] = list(base_normale)
+    # Configuration de base: copier les mêmes valeurs pour "grande" (restent éditables séparément)
+    engine.rules["grande"] = list(base_normale)
     engine.rules["faible"] = [
-        ToleranceRule(
-            graduation=0.001,
-            Emt=0.008, Eml=0.006, Ef=0.002, Eh=0.006
-        )
+        ToleranceRule(graduation=0.001, Emt=0.0015, Ef=0.0005, Eh=0.0006, Eml=None),
     ]
-    
     engine.rules["limitee"] = [
-        ToleranceRule(
-            graduation=0.001,
-            Emt=0.005, Eml=0.004, Ef=0.0015, Eh=0.004
-        )
+        ToleranceRule(graduation=0.001, Emt=0.002,  Ef=0.0005, Eh=0.0006, Eml=None),
+        ToleranceRule(graduation=0.01,  Emt=0.010,  Ef=0.003,  Eh=0.004,  Eml=None),
     ]
-    
     return engine

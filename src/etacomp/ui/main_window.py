@@ -9,13 +9,14 @@ from .tabs.session import SessionTab
 from .tabs.measures import MeasuresTab
 from .tabs.library import LibraryTab
 from .tabs.settings import SettingsTab
-from .tabs.fidelity_gap import FidelityGapTab
+from .tabs.fidelity_deviations import FidelityDeviationsTab
 from .tabs.finalization import FinalizationTab
 from .tabs.calibration_curve import CalibrationCurveTab
 from ..config.defaults import APP_TITLE
 from ..config.prefs import load_prefs
 from .themes import apply_theme
 from .help_dialog import HelpDialog
+from ..state.session_store import session_store
 
 
 class MainWindow(QMainWindow):
@@ -28,15 +29,20 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.session_tab = SessionTab()
         self.measures_tab = MeasuresTab()
-        self.fidelity_tab = FidelityGapTab()
-        self.calibration_tab = CalibrationCurveTab()
+        self.fidelity_tab = FidelityDeviationsTab(
+            get_runtime_session=self.get_rt_session,
+            go_to_session_tab=self.select_session_tab,
+        )
+        self.calibration_tab = CalibrationCurveTab(
+            get_runtime_session=self.get_rt_session
+        )
         self.finalization_tab = FinalizationTab()
         self.library_tab = LibraryTab()
         self.settings_tab = SettingsTab()
 
         self.tabs.addTab(self.session_tab, "Session")
         self.tabs.addTab(self.measures_tab, "Mesures")
-        self.tabs.addTab(self.fidelity_tab, "Écart de fidélité")
+        self.tabs.addTab(self.fidelity_tab, "Écarts de fidélité")
         self.tabs.addTab(self.calibration_tab, "Courbe d'étalonnage")
         self.tabs.addTab(self.finalization_tab, "Finalisation")
         self.tabs.addTab(self.library_tab, "Bibliothèque des comparateurs")
@@ -47,6 +53,12 @@ class MainWindow(QMainWindow):
         prefs = load_prefs()
         apply_theme(self, getattr(prefs, "theme", "dark"))
 
+        # Rafraîchir Bibliothèque quand un comparateur est créé depuis Session
+        try:
+            self.session_tab.comparator_created.connect(lambda _ref: self.library_tab.reload())
+        except Exception:
+            pass
+
         # --- Écouter les changements de thème depuis Paramètres ---
         try:
             self.settings_tab.themeChanged.connect(self._on_theme_changed)
@@ -55,6 +67,16 @@ class MainWindow(QMainWindow):
 
         # --- Menu Aide > À propos ---
         self._setup_help_menu()
+
+    # ===== Session runtime accessors =====
+    def get_rt_session(self):
+        return session_store.current
+
+    def select_session_tab(self):
+        try:
+            self.tabs.setCurrentWidget(self.session_tab)
+        except Exception:
+            pass
 
     # ===== Menus =====
     def _setup_help_menu(self):

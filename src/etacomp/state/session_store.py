@@ -4,7 +4,7 @@ from typing import List
 
 from PySide6.QtCore import QObject, Signal
 
-from ..models.session import Session, MeasureSeries
+from ..models.session import Session, MeasureSeries, FidelitySeries
 from ..config.prefs import load_prefs
 from ..io.storage import list_sessions, load_session_file, save_session_file
 
@@ -63,6 +63,21 @@ class SessionStore(QObject):
         while len(cur) <= index:
             cur.append(MeasureSeries(target=0.0, readings=[]))
         cur[index] = series
+        self.measures_updated.emit(self._current)
+
+    # ----- Série de fidélité (S5) -----
+    def set_fidelity(self, target: float, direction: str, samples: list[float], timestamps: list[str] | None = None):
+        """Enregistre la série de 5 mesures (fidélité) dans la session runtime."""
+        self._current.fidelity = FidelitySeries(
+            target=float(target),
+            direction="up" if str(direction).lower().startswith("u") else "down",
+            samples=[float(x) for x in (samples or [])],
+            timestamps=list(timestamps or []),
+        )
+        self.measures_updated.emit(self._current)
+
+    def clear_fidelity(self):
+        self._current.fidelity = None
         self.measures_updated.emit(self._current)
 
     def can_save(self) -> bool:

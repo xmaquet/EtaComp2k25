@@ -5,13 +5,13 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QLabel, QPushButton, QHBoxLayout,
-    QTextEdit, QTableWidget, QTableWidgetItem, QMessageBox
+    QTextEdit, QTableWidget, QTableWidgetItem, QMessageBox, QSizePolicy
 )
 
-from ...calculations.errors import calculate_comparator_errors, ErrorResults
-from ...rules.tolerances import ToleranceRuleEngine, get_default_rules_path
+from ...core.calculation_engine import CalculatedResults
+from ..results_provider import ResultsProvider
+from ...rules.verdict import VerdictStatus
 from ...state.session_store import session_store
-from ...io.storage import list_comparators
 
 
 class FinalizationTab(QWidget):
@@ -19,13 +19,12 @@ class FinalizationTab(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.engine = ToleranceRuleEngine()
-        self.current_results: Optional[ErrorResults] = None
+        self.current_results: Optional[CalculatedResults] = None
+        self.provider = ResultsProvider()
         
         layout = QVBoxLayout(self)
         
-        # Charger le moteur de règles
-        self._load_tolerance_engine()
+        # Le provider charge déjà le moteur de règles de façon interne
         
         # Groupe de synthèse
         self.summary_group = QGroupBox("Synthèse des mesures")
@@ -40,34 +39,28 @@ class FinalizationTab(QWidget):
         # Tableau des erreurs calculées
         self.errors_table = QTableWidget(0, 2)
         self.errors_table.setHorizontalHeaderLabels(["Erreur", "Valeur (mm)"])
-        self.errors_table.setMaximumHeight(150)
+        # Laisse la table grandir (pas de hauteur max)
+        self.errors_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         summary_layout.addWidget(self.errors_table)
         
         # Messages détaillés
         self.messages_text = QTextEdit()
-        self.messages_text.setMaximumHeight(100)
+        # Laisse le panneau messages grandir (pas de hauteur max)
+        self.messages_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.messages_text.setReadOnly(True)
         summary_layout.addWidget(self.messages_text)
         
-        layout.addWidget(self.summary_group)
-        
-        # Groupe de rapport
-        self.report_group = QGroupBox("Rapport")
-        report_layout = QVBoxLayout(self.report_group)
-        
-        # Statistiques par cible
-        self.target_stats_table = QTableWidget(0, 7)
-        self.target_stats_table.setHorizontalHeaderLabels([
-            "Cible (mm)", "Moyenne (mm)", "Écart-type (mm)", 
-            "Min (mm)", "Max (mm)", "Erreur (mm)", "Plage (mm)"
-        ])
-        report_layout.addWidget(self.target_stats_table)
-        
-        layout.addWidget(self.report_group)
+        # Donne le maximum d'espace vertical au bloc de synthèse
+        layout.addWidget(self.summary_group, stretch=1)
         
         # Boutons d'action
         action_layout = QHBoxLayout()
         self.btn_calculate = QPushButton("Calculer les erreurs")
+        # Bouton 'primaire' mieux visible
+        self.btn_calculate.setStyleSheet(
+            "QPushButton{background:#0d6efd;color:#fff;font-weight:600;padding:6px 12px;border-radius:6px;}"
+            "QPushButton:hover{background:#0b5ed7;}"
+        )
         self.btn_export_pdf = QPushButton("Exporter PDF")
         self.btn_export_html = QPushButton("Exporter HTML")
         
@@ -81,20 +74,9 @@ class FinalizationTab(QWidget):
         action_layout.addWidget(self.btn_export_pdf)
         
         layout.addLayout(action_layout)
-        layout.addStretch()
         
         # Connecter aux changements de session
         session_store.session_changed.connect(self._on_session_changed)
-    
-    def _load_tolerance_engine(self):
-        """Charge le moteur de règles de tolérances."""
-        try:
-            rules_path = get_default_rules_path()
-            self.engine.load(rules_path)
-        except Exception as e:
-            # Créer des règles par défaut si le fichier n'existe pas
-            from ...rules.tolerances import create_default_rules
-            self.engine = create_default_rules()
     
     def _on_session_changed(self):
         """Appelé quand la session change."""
@@ -107,121 +89,155 @@ class FinalizationTab(QWidget):
             self.verdict_label.setText("Aucune mesure disponible")
             self.verdict_label.setStyleSheet("QLabel { padding: 12px; font-size: 14px; font-weight: bold; }")
             self.errors_table.setRowCount(0)
-            self.target_stats_table.setRowCount(0)
             self.messages_text.clear()
             return
 
-        # Si des erreurs ont été calculées, les afficher
         if self.current_results:
             self._display_results()
     
     def _calculate_errors(self):
-        """Calcule les erreurs (version minimale compatible avec le modèle actuel)."""
-        session = session_store.current
-        if session is None:
-            QMessageBox.warning(self, "Erreur", "Aucune session active.")
+        """Calcule les erreurs via CalculationEngine à partir du runtime Session."""
+        rt = session_store.current
+        if rt is None or not rt.has_measures():
+            QMessageBox.warning(self, "Erreur", "Aucune session active ou aucune mesure.")
             return
-
-        if not session.has_measures():
-            QMessageBox.warning(self, "Erreur", "Aucune série de mesures disponible.")
-            return
-
-        # Version minimale: en l'absence de profil complet et de séries typées,
-        # on présente un résultat neutre et un message d'information.
         try:
-            self.current_results = ErrorResults(
-                Emt=0.0,
-                Eml=0.0,
-                Ef=0.0,
-                Eh=0.0,
-                linearity_error=0.0,
-                repeatability_error=0.0,
-                hysteresis_error=0.0,
-                target_stats=[],
-            )
-
+            v2, results, verdict = self.provider.compute_all(rt)
+            self.current_results = results
+            # Afficher erreurs et verdict/limites
             self._display_results()
-            self.verdict_label.setText("⚠️ Calcul détaillé indisponible (profil/séries non fournis)")
-            self.verdict_label.setStyleSheet(
-                "QLabel { background: #fff3cd; color: #856404; padding: 12px; "
-                "font-size: 14px; font-weight: bold; border-radius: 4px; }"
-            )
-            self.messages_text.setPlainText(
-                "Le calcul détaillé sera activé lorsque le profil comparateur et les séries de mesures seront disponibles."
-            )
-
+            if verdict:
+                self._display_verdict_and_limits(verdict)
+            else:
+                self.messages_text.append("\nAvertissement: Règles introuvables ou non valides. Complétez Paramètres ▸ Règles.")
         except Exception as e:
-            QMessageBox.critical(self, "Erreur", f"Impossible de préparer l'affichage des erreurs : {e}")
+            QMessageBox.critical(self, "Erreur", f"Impossible de calculer les erreurs :\n{e}")
     
     def _display_results(self):
         """Affiche les résultats des calculs d'erreurs."""
-        if not self.current_results:
+        res = self.current_results
+        if not res:
             return
-        
         # Tableau des erreurs principales
-        self.errors_table.setRowCount(4)
-        
-        errors_data = [
-            ("Emt (Erreur totale)", self.current_results.Emt),
-            ("Eml (Erreur locale)", self.current_results.Eml),
-            ("Ef (Erreur fidélité)", self.current_results.Ef),
-            ("Eh (Erreur hystérésis)", self.current_results.Eh)
+        rows = [
+            ("Erreur totale (|mm|)", res.total_error_mm),
+            ("Erreur locale (|Δerr|)", res.local_error_mm),
+            ("Hystérésis max", res.hysteresis_max_mm),
+            ("Fidélité (σ, 5 pts)", res.fidelity_std_mm if res.fidelity_std_mm is not None else None),
         ]
-        
-        for row, (name, value) in enumerate(errors_data):
-            self.errors_table.setItem(row, 0, QTableWidgetItem(name))
-            self.errors_table.setItem(row, 1, QTableWidgetItem(f"{value:.6f}"))
-        
-        # Tableau des statistiques par cible
-        stats = self.current_results.target_stats
-        self.target_stats_table.setRowCount(len(stats))
-        
-        for row, stat in enumerate(stats):
-            self.target_stats_table.setItem(row, 0, QTableWidgetItem(f"{stat['target']:.3f}"))
-            self.target_stats_table.setItem(row, 1, QTableWidgetItem(f"{stat['mean']:.6f}"))
-            self.target_stats_table.setItem(row, 2, QTableWidgetItem(f"{stat['std_dev']:.6f}"))
-            self.target_stats_table.setItem(row, 3, QTableWidgetItem(f"{stat['min']:.6f}"))
-            self.target_stats_table.setItem(row, 4, QTableWidgetItem(f"{stat['max']:.6f}"))
-            self.target_stats_table.setItem(row, 5, QTableWidgetItem(f"{stat['error']:.6f}"))
-            self.target_stats_table.setItem(row, 6, QTableWidgetItem(f"{stat['range']:.6f}"))
-    
-    def _display_verdict(self, verdict):
-        """Affiche le verdict de tolérance."""
-        if verdict.status == "apte":
-            self.verdict_label.setText("✅ COMPARATEUR APTE")
-            self.verdict_label.setStyleSheet(
-                "QLabel { background: #d4edda; color: #155724; padding: 12px; "
-                "font-size: 14px; font-weight: bold; border-radius: 4px; }"
+        self.errors_table.setRowCount(len(rows))
+        for i, (label, val) in enumerate(rows):
+            self.errors_table.setItem(i, 0, QTableWidgetItem(label))
+            if val is None:
+                self.errors_table.setItem(i, 1, QTableWidgetItem("—"))
+            else:
+                # Utiliser un QLabel pour afficher µm en gras
+                from PySide6.QtWidgets import QLabel
+                w = QLabel(f"{val:.6f} mm (<b>{val*1000.0:.1f} µm</b>)")
+                w.setTextFormat(Qt.RichText)
+                self.errors_table.setCellWidget(i, 1, w)
+
+        # Messages synthèse
+        msgs = []
+        if res.total_error_location:
+            loc = res.total_error_location
+            msgs.append(
+                f"Point critique: cible {loc.get('target_mm'):.3f} mm, sens {loc.get('direction')}, "
+                f"mesuré {loc.get('measured_mm'):.6f} mm (err {loc.get('error_mm'):+.6f} mm)."
             )
-        elif verdict.status == "inapte":
-            self.verdict_label.setText("❌ COMPARATEUR INAPTE")
-            self.verdict_label.setStyleSheet(
-                "QLabel { background: #f8d7da; color: #721c24; padding: 12px; "
-                "font-size: 14px; font-weight: bold; border-radius: 4px; }"
+        if res.hysteresis_location:
+            hl = res.hysteresis_location
+            msgs.append(
+                f"Hystérésis max sur {hl.get('target_mm'):.3f} mm: "
+                f"{hl.get('hysteresis_mm'):.6f} mm."
             )
-        else:  # indéterminé
-            self.verdict_label.setText("⚠️ VERDICT INDÉTERMINÉ")
-            self.verdict_label.setStyleSheet(
-                "QLabel { background: #fff3cd; color: #856404; padding: 12px; "
-                "font-size: 14px; font-weight: bold; border-radius: 4px; }"
+        if res.fidelity_context:
+            fc = res.fidelity_context
+            msgs.append(
+                f"Fidélité (5 pts) sur {fc.get('target_mm'):.3f} mm ({fc.get('direction')}): "
+                f"σ={res.fidelity_std_mm:.6f} mm (μ={fc.get('mean_mm'):.6f} mm)."
             )
-        
-        # Messages détaillés
-        messages = []
-        if verdict.messages:
-            messages.extend(verdict.messages)
-        
-        if verdict.exceed:
-            messages.append("\nDépassements détectés :")
-            for error_name, delta in verdict.exceed.items():
-                messages.append(f"  • {error_name}: +{delta:.3f} mm")
-        
-        self.messages_text.setPlainText("\n".join(messages))
+        if not msgs:
+            msgs.append("Campagne partielle — calcule avec les données disponibles.")
+        # Utiliser HTML pour mettre en gras les µm
+        html = "<br/>".join(msgs)
+        self.messages_text.setHtml(html)
+        # Bandeau neutre; coloré après verdict
+        self.verdict_label.setText("Calcul terminé — voir verdict ci‑dessous")
+        self.verdict_label.setStyleSheet("QLabel { padding: 12px; font-size: 14px; font-weight: bold; }")
     
     def _export_pdf(self):
-        """Exporte le rapport en PDF."""
         QMessageBox.information(self, "Export PDF", "Fonctionnalité d'export PDF à implémenter.")
     
     def _export_html(self):
-        """Exporte le rapport en HTML."""
         QMessageBox.information(self, "Export HTML", "Fonctionnalité d'export HTML à implémenter.")
+
+    # ----- Verdict & limites -----
+    def _display_verdict_and_limits(self, verdict):
+        # Bandeau coloré
+        if verdict.status == VerdictStatus.APTE:
+            self.verdict_label.setText("✅ CONFORME")
+            self.verdict_label.setStyleSheet("QLabel { background: #d4edda; color: #155724; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 4px; }")
+        elif verdict.status == VerdictStatus.INAPTE:
+            self.verdict_label.setText("❌ NON CONFORME")
+            self.verdict_label.setStyleSheet("QLabel { background: #f8d7da; color: #721c24; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 4px; }")
+        else:
+            self.verdict_label.setText("⚠️ VERDICT INDÉTERMINÉ")
+            self.verdict_label.setStyleSheet("QLabel { background: #fff3cd; color: #856404; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 4px; }")
+
+        lines = []
+        # Règle
+        if verdict.rule:
+            r = verdict.rule
+            lines.append("Règle appliquée:")
+            lines.append(f"  • Famille: {self._family_label()}")
+            lines.append(f"  • Graduation: {r.graduation:.3f} mm")
+            if r.course_min is not None and r.course_max is not None:
+                lines.append(f"  • Plage de course: {r.course_min:.3f} – {r.course_max:.3f} mm")
+            # Limites: afficher uniquement celles présentes
+            lims = []
+            lims.append(f"Emt={getattr(r, 'Emt', None):.3f}")
+            if getattr(r, "Eml", None) is not None:
+                lims.append(f"Eml={r.Eml:.3f}")
+            lims.append(f"Ef={getattr(r, 'Ef', None):.3f}")
+            lims.append(f"Eh={getattr(r, 'Eh', None):.3f}")
+            lines.append("  • Limites: " + " ; ".join(lims) + " mm")
+        else:
+            lines.append("Aucune règle appliquée.")
+
+        # Comparaisons
+        if verdict.measured:
+            lines.append("\nRésultats vs limites:")
+            # Afficher uniquement les critères présents dans les limites
+            for key in ("Emt", "Eml", "Ef", "Eh"):
+                if key not in verdict.limits:
+                    continue
+                m = verdict.measured.get(key, None)
+                lim = verdict.limits.get(key, None)
+                if m is None:
+                    lines.append(f"  • Erreur {self._label_fr(key)}: requise mais indisponible")
+                else:
+                    delta = m - lim
+                    sign = f" (dépassement {delta:.3f} mm / {delta*1000.0:.1f} µm)" if delta > 1e-9 else ""
+                    lines.append(
+                        f"  • Erreur {self._label_fr(key)}: {m:.3f} mm ({m*1000.0:.1f} µm) ; "
+                        f"limite {lim:.3f} mm ({lim*1000.0:.1f} µm){sign}"
+                    )
+
+        # Messages du verdict
+        if verdict.messages:
+            lines.append("\nNotes:")
+            lines.extend(verdict.messages)
+
+        self.messages_text.append("<br/>" + "<br/>".join(lines))
+
+    def _label_fr(self, key: str) -> str:
+        return {
+            "Emt": "totale",
+            "Eml": "locale",
+            "Eh": "d'hystérésis",
+            "Ef": "de fidélité"
+        }.get(key, key)
+
+    def _family_label(self) -> str:
+        return "selon profil"  # Placeholder; on pourrait passer family depuis snapshot si nécessaire

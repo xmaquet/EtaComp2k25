@@ -75,9 +75,9 @@ SESSIONS_DIR = "sessions"
 
 
 def _default_session_filename(s: Session) -> str:
-    who = (s.operator or "op").strip().replace(" ", "_")
+    ref = (s.comparator_ref or "sans_ref").strip().replace(" ", "_")
     dt = s.date.strftime("%Y%m%d_%H%M%S")
-    return f"{who}_{dt}.json"
+    return f"{ref}_{dt}.json"
 
 
 def list_sessions() -> List[Path]:

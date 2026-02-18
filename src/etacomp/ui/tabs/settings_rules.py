@@ -6,7 +6,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QTableWidget, QTableWidgetItem, QPushButton, QLabel,
+    QTableWidget, QTableWidgetItem, QPushButton, QLabel, QCheckBox,
     QMessageBox, QFileDialog, QAbstractItemView,
     QDialog, QFormLayout, QDoubleSpinBox, QComboBox, QDialogButtonBox
 )
@@ -148,6 +148,22 @@ class SettingsRulesTab(QWidget):
         self.status_label = QLabel("Configuration valide")
         self.status_label.setStyleSheet("QLabel { background: #d4edda; color: #155724; padding: 8px; border-radius: 4px; }")
         layout.addWidget(self.status_label)
+
+        # Notice d'interprétation des intervalles (normale/grande)
+        info = QLabel(
+            "Intervalles de course appliqués par EtaComp\n"
+            "Pour une même graduation, les lignes sont interprétées dans l’ordre des courses :\n"
+            "• Première ligne : course ≥ min et ≤ max (si min=0, c’est simplement ≤ max)\n"
+            "• Lignes suivantes : course > min et ≤ max\n"
+            "Exemple : « ≤ 5 », puis « > 5 et ≤ 10 »."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+        
+        # Info: configuration de base « grande » = mêmes valeurs que « normale », mais distinctes
+        info2 = QLabel("Note: la configuration de base définit des valeurs identiques pour « course grande » et « course normale », mais elles restent éditables séparément.")
+        info2.setWordWrap(True)
+        layout.addWidget(info2)
         
         # Onglets par famille
         self.tabs = QTabWidget()
@@ -166,9 +182,9 @@ class SettingsRulesTab(QWidget):
             
             # Colonnes selon la famille
             if family in ("normale", "grande"):
-                headers = ["Graduation", "Course min", "Course max", "Emt", "Eml", "Ef", "Eh"]
+                headers = ["Graduation (mm)", "Course min (mm)", "Course max (mm)", "Emt (µm)", "Eml (µm)", "Ef (µm)", "Eh (µm)", "Interprétation"]
             else:
-                headers = ["Graduation", "Emt", "Eml", "Ef", "Eh"]
+                headers = ["Graduation (mm)", "Emt (µm)", "Eml (µm)", "Ef (µm)", "Eh (µm)"]
             
             # Tableau des règles
             table = QTableWidget(0, len(headers))
@@ -235,37 +251,72 @@ class SettingsRulesTab(QWidget):
             from ...rules.tolerances import create_default_rules
             self.engine = create_default_rules()
     
+    # (Plus de liaison automatique grande→normale; familles distinctes)
+    
     def _update_tables(self):
         """Met à jour tous les tableaux."""
         for family, table in self.family_tables.items():
             rules = self.engine.rules[family]
             table.setRowCount(len(rules))
-            
+
+            # Construire l'interprétation stricte par graduation (ordre par course_max)
+            interp_by_index = {}
+            if family in ("normale", "grande"):
+                grads = {}
+                for idx, r in enumerate(rules):
+                    grads.setdefault(f"{r.graduation:.6f}", []).append((idx, r))
+                for g, lst in grads.items():
+                    lst_sorted = sorted(lst, key=lambda t: (t[1].course_max, t[1].course_min))
+                    for i, (row_idx, r) in enumerate(lst_sorted):
+                        if i == 0:
+                            if (r.course_min or 0.0) <= 0.0:
+                                text = f"course ≤ {r.course_max:.3f}"
+                            else:
+                                text = f"course ≥ {r.course_min:.3f} et ≤ {r.course_max:.3f}"
+                        else:
+                            text = f"course > {r.course_min:.3f} et ≤ {r.course_max:.3f}"
+                        interp_by_index[row_idx] = text
+
             for row, rule in enumerate(rules):
                 col = 0
-                table.setItem(row, col, QTableWidgetItem(f"{rule.graduation:.3f}"))
-                col += 1
-                
+                table.setItem(row, col, QTableWidgetItem(f"{rule.graduation:.3f}")); col += 1
                 if family in ("normale", "grande"):
-                    table.setItem(row, col, QTableWidgetItem(f"{rule.course_min:.3f}" if rule.course_min is not None else ""))
+                    table.setItem(row, col, QTableWidgetItem(f"{rule.course_min:.3f}" if rule.course_min is not None else "")); col += 1
+                    table.setItem(row, col, QTableWidgetItem(f"{rule.course_max:.3f}" if rule.course_max is not None else "")); col += 1
+                # Tolérances affichées en µm
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Emt*1000:.3f}")); col += 1
+                eml_val = getattr(rule, "Eml", None)
+                table.setItem(row, col, QTableWidgetItem(f"{eml_val*1000:.3f}" if eml_val is not None else "")); col += 1
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Ef*1000:.3f}")); col += 1
+                table.setItem(row, col, QTableWidgetItem(f"{rule.Eh*1000:.3f}"))
+                if family in ("normale", "grande"):
                     col += 1
-                    table.setItem(row, col, QTableWidgetItem(f"{rule.course_max:.3f}" if rule.course_max is not None else ""))
-                    col += 1
-                
-                table.setItem(row, col, QTableWidgetItem(f"{rule.Emt:.3f}"))
-                col += 1
-                table.setItem(row, col, QTableWidgetItem(f"{rule.Eml:.3f}"))
-                col += 1
-                table.setItem(row, col, QTableWidgetItem(f"{rule.Ef:.3f}"))
-                col += 1
-                table.setItem(row, col, QTableWidgetItem(f"{rule.Eh:.3f}"))
+                    table.setItem(row, col, QTableWidgetItem(interp_by_index.get(row, "")))
     
     def _update_status(self):
         """Met à jour le bandeau d'état."""
         errors = self.engine.validate()
+        # Détecter des "trous" (non bloquant) sur normale/grande
+        warnings = []
+        for fam in ("normale", "grande"):
+            rr = self.engine.rules.get(fam, [])
+            grads = {}
+            for r in rr:
+                grads.setdefault(f"{r.graduation:.6f}", []).append(r)
+            for g, lst in grads.items():
+                lst_sorted = sorted(lst, key=lambda r: (r.course_max, r.course_min))
+                for i in range(len(lst_sorted) - 1):
+                    a = lst_sorted[i]; b = lst_sorted[i+1]
+                    if a.course_max is not None and b.course_min is not None and b.course_min > a.course_max:
+                        warnings.append(f"{g}: trou entre {a.course_max:.3f} et {b.course_min:.3f} mm")
+
         if not errors:
-            self.status_label.setText("Configuration valide")
-            self.status_label.setStyleSheet("QLabel { background: #d4edda; color: #155724; padding: 8px; border-radius: 4px; }")
+            if warnings:
+                self.status_label.setText("Configuration valide (avec avertissements) — " + " ; ".join(warnings))
+                self.status_label.setStyleSheet("QLabel { background: #fff3cd; color: #856404; padding: 8px; border-radius: 4px; }")
+            else:
+                self.status_label.setText("Configuration valide")
+                self.status_label.setStyleSheet("QLabel { background: #d4edda; color: #155724; padding: 8px; border-radius: 4px; }")
         else:
             self.status_label.setText(f"Erreurs détectées : {'; '.join(errors)}")
             self.status_label.setStyleSheet("QLabel { background: #f8d7da; color: #721c24; padding: 8px; border-radius: 4px; }")
