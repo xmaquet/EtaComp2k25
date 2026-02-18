@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox, QLineEdit, QLabel,
-    QSpinBox, QDoubleSpinBox, QCheckBox, QPushButton
+    QSpinBox, QDoubleSpinBox, QCheckBox, QPushButton, QMessageBox
 )
 
 from ...io.serial_manager import serial_manager
@@ -176,3 +176,4 @@ class ParametersTab(QWidget):
         self.spin_decimals.setValue(int(d["decimals"]))
         self.combo_decimal_disp.setCurrentText(d["decimal_display"])
         self._apply_tesa_reader()
+        QMessageBox.information(self, "TESA ASCII", "Valeurs par défaut rétablies et enregistrées.")

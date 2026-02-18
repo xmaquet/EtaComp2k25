@@ -416,6 +416,7 @@ class SettingsRulesTab(QWidget):
             self._update_tables()
             self._update_status()
             self.rules_changed.emit()
+            QMessageBox.information(self, "Règles", "Règles par défaut restaurées. Cliquez sur Sauvegarder pour les enregistrer.")
     
     def _save_rules(self):
         """Sauvegarde les règles."""

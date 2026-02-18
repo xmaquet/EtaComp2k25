@@ -201,6 +201,7 @@ class LibraryTab(QWidget):
             upsert_comparator(model)
             self.reload()
             self.comparators_changed.emit()
+            QMessageBox.information(self, "Bibliothèque", f"Comparateur {model.reference} enregistré.")
 
     def on_edit(self):
         ref = self.current_reference()
@@ -225,6 +226,7 @@ class LibraryTab(QWidget):
         upsert_comparator(model)
         self.reload()
         self.comparators_changed.emit()
+        QMessageBox.information(self, "Bibliothèque", f"Comparateur {model.reference} enregistré.")
 
     def on_delete(self):
         ref = self.current_reference()
@@ -235,3 +237,4 @@ class LibraryTab(QWidget):
             delete_comparator_by_reference(ref)
             self.reload()
             self.comparators_changed.emit()
+            QMessageBox.information(self, "Bibliothèque", "Comparateur supprimé.")
