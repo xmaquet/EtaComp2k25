@@ -1,6 +1,6 @@
 ## EtaComp2K25 — Rétro‑ingénierie de l’architecture actuelle
 
-Version: 0.1.1
+Version: 0.2.0 — Dernière mise à jour : 18 février 2026
 
 ### Sommaire
 - [1. Contexte et objectifs](#1-contexte-et-objectifs)
@@ -37,24 +37,27 @@ Version: 0.1.1
 
 - Entrée: `etacomp.app:run` (création `QApplication`, thème, `MainWindow`).
 - UI:
-  - `main_window.py`: onglets, thèmes, Aide.
-  - Onglets: `session.py`, `measures.py`, `library.py`, `finalization.py`, `fidelity_gap.py` (placeholder), `calibration_curve.py` (placeholder), `settings.py` (incl. `settings_rules.py`), `help_dialog.py`.
-- Domaine/Modèles: `models/comparator.py` (validation stricte, 11 cibles), `models/session.py`.
-- Règles: `rules/tolerances.py` (dataclass + moteur + validation + match + import/export).
-- Calculs: `calculations/errors.py` (API prévue; non alignée au modèle de session actuel).
-- I/O & état: `io/serialio.py`, `io/serial_manager.py`, `io/storage.py`, `state/session_store.py`.
+  - `main_window.py`: onglets, thèmes, Aide, signaux rafraîchissement (détenteur/comparateur créés).
+  - Onglets: `session.py`, `measures.py`, `library.py`, `fidelity_deviations.py`, `calibration_curve.py`, `finalization.py`, `settings.py` (sous-onglets Général, Règles, Détenteurs, Bancs étalon, Exports, TESA ASCII), `help_dialog.py`.
+- Domaine/Modèles: `models/comparator.py` (11 cibles, periodicite_controle_mois), `models/session.py` (holder_ref, banc_ref, fidelity), `models/detenteur.py`, `models/banc_etalon.py`.
+- Règles: `rules/tolerances.py` (UI), `rules/tolerance_engine.py` (verdict), `rules/verdict.py` (évaluation tolérances).
+- Calculs: `core/calculation_engine.py` (SessionV2 → CalculatedResults), `core/session_adapter.py` (Session runtime → SessionV2), `calculations/errors.py` (pont compatibilité).
+- Résultats: `ui/results_provider.py` (agrège SessionV2, calculs, verdict).
+- I/O & état: `io/serialio.py`, `io/tesa_reader.py`, `io/serial_manager.py`, `io/storage.py` (comparateurs, détenteurs, bancs étalon, sessions, export_config), `state/session_store.py`.
+- Config: `config/export_config.py`, `config/tesa.py`, `config/prefs.py`.
 - Outils: scripts de migration et sonde série.
 
 ## 4. Démarrage et flux logique
 
 - Démarrage: CLI `etacomp` → `app.run()` → UI thème → `MainWindow`.
 - Flux utilisateur:
-  1) `Session`: métadonnées, choix comparateur, connexion COM.
-  2) `Mesures`: lancer campagne (consommation série, écriture tableau, moyennes).
-  3) Sauvegarder la session.
-  4) `Bibliothèque`: gérer comparateurs.
-  5) `Paramètres ▸ Règles`: configurer tolérances.
-  6) `Finalisation`: calcul/affichage (placeholder partiel), export à implémenter.
+  1) `Session`: métadonnées, comparateur, détenteur, banc étalon, connexion COM ; enregistrer session.
+  2) `Mesures`: lancer campagne (flux série, tableau, moyennes) ; bouton sauvegarde déplacé vers Session.
+  3) `Écarts de fidélité`: capture série 5 au point critique.
+  4) `Courbe d’étalonnage`: graphe erreurs/mesures, seuils Emt.
+  5) `Finalisation`: calcul erreurs (CalculationEngine), verdict tolérances, export PDF/HTML (placeholders).
+  6) `Bibliothèque`: gérer comparateurs (11 cibles, périodicité).
+  7) `Paramètres`: Règles, Détenteurs, Bancs étalon, Exports, TESA ASCII.
 
 ## 5. Dépendances et environnements
 
@@ -77,10 +80,9 @@ Version: 0.1.1
   - I/O série paramétrable (regex, décimale, EOL, modes).
 - Faiblesses:
   - Couplage logique UI (campagne) ↔ composants PySide6.
-  - Décalage `calculations/errors.py` ↔ modèle de session (API non branchée).
   - Ressources référencées par chemins source (non packagées).
-  - JSON non versionnés, gestion d’exceptions parfois silencieuse.
-  - Placeholders non implémentés (fidelity/calibration/export).
+  - JSON non versionnés (sessions), gestion d’exceptions parfois silencieuse.
+  - Export PDF/HTML non implémenté (placeholders).
 
 ## 8. Diagramme d’architecture (Mermaid)
 
@@ -90,22 +92,26 @@ flowchart TD
     MW[MainWindow]
     TSession[Tab Session]
     TMeasures[Tab Mesures]
+    TFidelity[Tab Écarts fidélité]
+    TCalib[Tab Courbe étalonnage]
     TLib[Tab Bibliothèque]
     TFinal[Tab Finalisation]
-    TRules[Tab Règles (Paramètres)]
+    TSettings[Tab Paramètres]
     THelp[HelpDialog]
   end
 
   subgraph Domain [Domaine / Modèles]
     MComp[ComparatorProfile / RangeType]
-    MSession[Session / MeasureSeries]
-    Errors[ErrorCalculator / ErrorResults]
-    Rules[ToleranceRuleEngine / ToleranceRule]
+    MSession[Session / MeasureSeries / FidelitySeries]
+    MDet[Detenteur]
+    MBanc[BancEtalon]
+    SessionV2[SessionV2 / CalculationEngine]
+    Rules[ToleranceRuleEngine / verdict]
   end
 
   subgraph IO
     SerialMgr[SerialManager]
-    SerialIO[SerialConnection/ReaderThread]
+    TesaReader[TesaSerialReader]
     Storage[storage.py (JSON)]
   end
 
@@ -115,29 +121,40 @@ flowchart TD
 
   MW --> TSession
   MW --> TMeasures
+  MW --> TFidelity
+  MW --> TCalib
   MW --> TLib
   MW --> TFinal
-  MW --> TRules
+  MW --> TSettings
   MW --> THelp
 
   TSession --> Store
   TSession --> SerialMgr
   TSession --> Storage
+  TSession --> MDet
+  TSession --> MBanc
 
   TMeasures --> Store
   TMeasures --> SerialMgr
   TMeasures --> Storage
   Store --> Storage
 
-  TLib --> Storage
-  TRules --> Rules
+  TFidelity --> Store
+  TFidelity --> SerialMgr
+  TFidelity --> SessionV2
+  TCalib --> SessionV2
   TFinal --> Store
+  TFinal --> SessionV2
   TFinal --> Rules
-  TFinal --> Errors
+  TLib --> Storage
+  TSettings --> Storage
+  TSettings --> Rules
 
-  SerialMgr --> SerialIO
+  SerialMgr --> TesaReader
   Storage --> MComp
   Storage --> MSession
+  Storage --> MDet
+  Storage --> MBanc
 ```
 
 ## 9. Annexes et ADR

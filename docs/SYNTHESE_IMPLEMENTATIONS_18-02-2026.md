@@ -1,8 +1,8 @@
 # Synthèse des implémentations — 18 février 2026
 
 **Projet :** EtaComp (vérification des comparateurs)  
-**Date :** Mercredi 18 février 2026  
-**Objectif :** Document pour le mentor
+**Période :** 17–18 février 2026  
+**Objectif :** Document pour le mentor — implémentations des 2 derniers jours
 
 ---
 

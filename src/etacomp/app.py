@@ -30,6 +30,12 @@ def _apply_app_icon(app: QApplication) -> None:
 
 def run():
     import sys
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
     app = QApplication(sys.argv)
 
     # Thème (depuis préférences)

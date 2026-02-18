@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QLabel, QPushButton, QHBoxLayout,
-    QTextEdit, QTableWidget, QTableWidgetItem, QMessageBox, QSizePolicy
+    QTextEdit, QTableWidget, QTableWidgetItem, QMessageBox, QSizePolicy,
+    QInputDialog,
 )
 
 from ...core.calculation_engine import CalculatedResults
@@ -14,6 +16,8 @@ from ...rules.verdict import VerdictStatus
 from ...state.session_store import session_store
 from ...io.storage import get_default_banc_etalon, list_comparators
 from ...config.export_config import load_export_config
+
+logger = logging.getLogger(__name__)
 
 
 class FinalizationTab(QWidget):
@@ -169,35 +173,86 @@ class FinalizationTab(QWidget):
         self.verdict_label.setStyleSheet("QLabel { padding: 12px; font-size: 14px; font-weight: bold; }")
     
     def _export_pdf(self):
-        exp_cfg = load_export_config()
-        banc = get_default_banc_etalon()
-        lines = []
-        if exp_cfg.entite:
-            lines.append(f"Entité : {exp_cfg.entite}")
-        if exp_cfg.document_title:
-            lines.append(f"Titre : {exp_cfg.document_title}")
-        if exp_cfg.document_reference:
-            lines.append(f"Référence : {exp_cfg.document_reference}")
-        if exp_cfg.image_path:
-            lines.append(f"Image : {exp_cfg.image_path}")
-        if banc:
-            lines.append(f"Banc étalon : {banc.reference} — {banc.marque_capteur} — Validité : {banc.date_validite}")
-        comp = None
-        ref = getattr(session_store.current, "comparator_ref", None)
-        if ref:
-            for c in list_comparators():
-                if c.reference == ref:
-                    comp = c
-                    break
-        if comp:
-            period = getattr(comp, "periodicite_controle_mois", 12)
-            lines.append(f"Comparateur : {comp.reference} — Périodicité : {period} mois")
-        msg = "\n".join(lines) if lines else "Configurez Paramètres > Exports pour personnaliser."
-        QMessageBox.information(
+        logger.info("Export PDF : démarrage")
+        self._status("Export PDF…")
+
+        rt = session_store.current
+        if rt is None:
+            logger.warning("Export PDF : aucune session active")
+            QMessageBox.warning(self, "Export PDF", "Aucune session active. Chargez ou créez une session.")
+            self._status("")
+            return
+        if not rt.has_measures():
+            logger.warning("Export PDF : session sans mesures")
+            QMessageBox.warning(self, "Export PDF", "Aucune mesure. Calculez d'abord les erreurs (bouton « Calculer les erreurs »).")
+            self._status("")
+            return
+
+        logger.info("Export PDF : demande du numéro de document")
+        doc_no, ok = QInputDialog.getInt(
             self,
             "Export PDF",
-            msg + "\n\nFonctionnalité d'export PDF à implémenter.",
+            "Numéro d'ordre du document :",
+            value=1,
+            minValue=1,
+            maxValue=999,
         )
+        if not ok:
+            logger.info("Export PDF : annulé par l'utilisateur")
+            QMessageBox.information(self, "Export PDF", "Export annulé.")
+            self._status("")
+            return
+
+        logger.info("Export PDF : calcul des erreurs (n°=%d)", doc_no)
+        self._status("Export PDF : calcul en cours…")
+        try:
+            v2, results, verdict = self.provider.compute_all(rt)
+            logger.info("Export PDF : calcul terminé")
+        except Exception as e:
+            logger.exception("Export PDF : erreur de calcul")
+            QMessageBox.critical(
+                self,
+                "Export PDF",
+                f"Impossible de calculer les erreurs :\n{e}\n\nL'export est impossible.",
+            )
+            self._status("")
+            return
+
+        logger.info("Export PDF : génération du PDF")
+        self._status("Export PDF : génération…")
+        exp_cfg = load_export_config()
+        try:
+            from ...io.pdf_exporter import export_pdf
+            path = export_pdf(rt, exp_cfg, results, verdict, doc_no=doc_no)
+            logger.info("Export PDF : terminé → %s", path)
+            QMessageBox.information(
+                self,
+                "Export PDF",
+                f"Rapport exporté avec succès :\n{path}",
+            )
+            self._status("Export PDF terminé")
+        except Exception as e:
+            logger.exception("Export PDF : erreur de génération")
+            QMessageBox.critical(
+                self,
+                "Export PDF",
+                f"Erreur lors de l'export :\n{e}",
+            )
+            self._status("Export PDF : erreur")
+        finally:
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(3000, lambda: self._status(""))
+
+    def _status(self, msg: str) -> None:
+        """Affiche un message dans la barre de statut de la fenêtre principale."""
+        try:
+            mw = self.window()
+            if mw and hasattr(mw, "statusBar"):
+                sb = mw.statusBar()
+                if sb:
+                    sb.showMessage(msg)
+        except Exception:
+            pass
     
     def _export_html(self):
         QMessageBox.information(self, "Export HTML", "Fonctionnalité d'export HTML à implémenter.")

@@ -24,6 +24,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.resize(1200, 800)
+        self.statusBar().showMessage("")  # barre de statut pour feedback (export PDF, etc.)
 
         # --- Onglets ---
         self.tabs = QTabWidget()

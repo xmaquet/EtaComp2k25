@@ -1,5 +1,7 @@
 ## EtaComp2K25 — Plan de restructuration (sans code)
 
+*Dernière mise à jour : 18 février 2026*
+
 ### Sommaire
 - [1. Objectifs du refactor](#1-objectifs-du-refactor)
 - [2. Architecture cible](#2-architecture-cible)
@@ -37,9 +39,9 @@
 
 ## 3. Découpage en phases
 
-1) Alignement modèle ↔ calculs
-   - Étendre `MeasureSeries` (ex. `direction`, structure adaptée).
-   - Adapter `ErrorCalculator` ou ajouter un adaptateur.
+1) Alignement modèle ↔ calculs — **réalisé** (session_adapter, CalculationEngine, ResultsProvider)
+   - Session runtime (MeasureSeries.readings) → SessionV2 (measurements + direction).
+   - Calculs Emt, Eml, Eh, Ef opérationnels.
 2) Extraction “CampaignService”
    - Déplacer l’état/avancement de `MeasuresTab` dans le domaine.
    - UI: binding (affichage/commandes).

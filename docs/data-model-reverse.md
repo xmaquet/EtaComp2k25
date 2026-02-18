@@ -1,5 +1,7 @@
 ## EtaComp2K25 — Modèle de données (rétro‑ingénierie)
 
+*Dernière mise à jour : 18 février 2026*
+
 ### Sommaire
 - [1. Classes et structures](#1-classes-et-structures)
 - [2. Contraintes et validations](#2-contraintes-et-validations)
@@ -12,27 +14,20 @@
 
 - `RangeType` (Enum): `normale | grande | faible | limitee`, `display_name`.
 - `ComparatorProfile` (Pydantic):
-  - `reference: str`
-  - `manufacturer?: str`
-  - `description?: str`
-  - `graduation: float (>0)`
-  - `course: float (>0)`
-  - `range_type: RangeType`
+  - `reference: str`, `manufacturer?`, `description?`
+  - `graduation: float (>0)`, `course: float (>0)`, `range_type: RangeType`
   - `targets: List[float]` (exactement 11)
-  - Helpers: `filename`, `load_profile`, `save_profile`.
+  - `periodicite_controle_mois: int` (1–120, défaut 12)
 - `Session` (Pydantic):
-  - `operator: str`
-  - `date: datetime`
-  - `temperature_c?: float`
-  - `humidity_pct?: float`
-  - `comparator_ref?: str`
-  - `series_count: int`
-  - `measures_per_series: int`
-  - `observations?: str`
-  - `series: List[MeasureSeries]`
-- `MeasureSeries` (Pydantic):
-  - `target: float`
-  - `readings: List[float]`
+  - `operator: str`, `date: datetime`, `temperature_c?`, `humidity_pct?`
+  - `comparator_ref?`, `holder_ref?`, `banc_ref?`
+  - `series_count`, `measures_per_series`, `observations?`
+  - `series: List[MeasureSeries]`, `fidelity?: FidelitySeries`
+- `MeasureSeries` (Pydantic): `target: float`, `readings: List[float]`
+- `FidelitySeries` (Pydantic): `target`, `direction` (up/down), `samples: List[float]`, `timestamps`
+- `Detenteur` (Pydantic): `code_es: str`, `libelle: str`
+- `BancEtalon` (Pydantic): `reference`, `marque_capteur`, `date_validite`, `is_default`
+- `ExportConfig` (Pydantic): `entite`, `image_path?`, `document_title`, `document_reference`, `texte_normes`
 - `ToleranceRule` (dataclass):
   - `graduation: float`
   - `course_min?: float` / `course_max?: float` (normale/grande)
@@ -41,7 +36,7 @@
   - `rules: Dict[str, List[ToleranceRule]]`
   - `load/save/validate/match/evaluate`
 - `Verdict` (dataclass): `status`, `rule?`, `exceed?`, `messages`.
-- `ErrorResults` (dataclass): `Emt/Eml/Ef/Eh`, `linearity_error`, `repeatability_error`, `hysteresis_error`, `target_stats`.
+- `CalculatedResults` (dataclass): `total_error_mm`, `local_error_mm`, `hysteresis_max_mm`, `fidelity_std_mm?`, `calibration_points`, localisations.
 
 ## 2. Contraintes et validations
 
@@ -57,14 +52,14 @@
 
 ## 3. Persistences JSON et schémas
 
-- Comparateurs: `~/.EtaComp2K25/comparators/*.json`
-  - Structure ≈ `ComparatorProfile`.
-- Sessions: `~/.EtaComp2K25/sessions/*.json`
-  - Structure ≈ `Session` + `series: [{target, readings[]}]`.
-- Règles: `~/.EtaComp2K25/rules/tolerances.json`
-  - `{ "normale": [ToleranceRule], "grande": [...], "faible": [...], "limitee": [...] }`.
-- Préférences: `~/.EtaComp2K25/config.json`
-  - `theme`, `default_*`, `autosave_*`, `language`, `help{last_*}`.
+- Comparateurs: `~/.EtaComp2K25/comparators/*.json` — Structure ≈ `ComparatorProfile` (avec periodicite_controle_mois).
+- Sessions: `~/.EtaComp2K25/sessions/{ref}_{YYYYMMDD_HHMMSS}.json` — Structure ≈ `Session` + `series` + `fidelity?`.
+- Détenteurs: `~/.EtaComp2K25/detenteurs.json` — `{ "detenteurs": [{code_es, libelle}] }`.
+- Bancs étalon: `~/.EtaComp2K25/bancs_etalon.json` — `{ "bancs": [{reference, marque_capteur, date_validite, is_default}] }`.
+- Export: `~/.EtaComp2K25/export_config.json` — entite, image_path, document_title, document_reference, texte_normes.
+- Règles: `~/.EtaComp2K25/rules/tolerances.json` — `{ "normale": [...], "grande": [...], "faible": [...], "limitee": [...] }`.
+- Préférences: `~/.EtaComp2K25/config.json` — theme, default_*, autosave_*, language.
+- TESA: `~/.EtaComp2K25/tesa_config.json` — frame_mode, silence_ms, eol, decimals, etc.
 
 ## 4. Diagrammes de données (Mermaid)
 
@@ -94,15 +89,37 @@ classDiagram
     +float temperature_c
     +float humidity_pct
     +str comparator_ref
+    +str holder_ref
+    +str banc_ref
     +int series_count
     +int measures_per_series
     +str observations
     +List~MeasureSeries~ series
+    +FidelitySeries fidelity
   }
 
   class MeasureSeries {
     +float target
     +List~float~ readings
+  }
+
+  class FidelitySeries {
+    +float target
+    +str direction
+    +List~float~ samples
+    +List~str~ timestamps
+  }
+
+  class Detenteur {
+    +str code_es
+    +str libelle
+  }
+
+  class BancEtalon {
+    +str reference
+    +str marque_capteur
+    +str date_validite
+    +bool is_default
   }
 
   class ToleranceRule {
@@ -121,26 +138,27 @@ classDiagram
     +List~str~ messages
   }
 
-  class ErrorResults {
-    +float Emt
-    +float Eml
-    +float Ef
-    +float Eh
-    +float linearity_error
-    +float repeatability_error
-    +float hysteresis_error
-    +List~Dict~ target_stats
+  class CalculatedResults {
+    +float total_error_mm
+    +float local_error_mm
+    +float hysteresis_max_mm
+    +float fidelity_std_mm
+    +List~Dict~ calibration_points
   }
 
-  ComparatorProfile "1" <-- "many" Session : comparator_ref (string)
+  ComparatorProfile "1" <-- "many" Session : comparator_ref
   Session "1" o-- "many" MeasureSeries
+  Session "1" o-- "0..1" FidelitySeries
+  Session "1" --> "0..1" Detenteur : holder_ref
+  Session "1" --> "0..1" BancEtalon : banc_ref
   ToleranceRule "*" --> RangeType
 ```
 
 ## 5. Écarts et alignements à prévoir
 
-- `ErrorCalculator` attend `series.measurements` et `direction` (ascending/descending), alors que le modèle actuel expose `readings` sans direction. Un alignement de modèle sera nécessaire pour activer les calculs réels.
-- JSON non versionnés (sessions/règles); ajouter `schema_version` simplifierait les évolutions.
+- **Alignement effectué** : `session_adapter` convertit Session (readings) → SessionV2 (measurements + direction). `CalculationEngine` calcule Emt, Eml, Eh, Ef. `ResultsProvider` agrège tout.
+- JSON sessions non versionnés ; SessionV2 possède schema_version en interne.
+- Deux moteurs de règles coexistent : `tolerance_engine` (verdict) et `tolerances` (UI édition).
 
 ## 6. ADR
 

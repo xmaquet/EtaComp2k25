@@ -69,21 +69,8 @@ Le profil est sauvegardé au format JSON dans le répertoire `comparators/`.
   "graduation": 0.01,
   "course": 10.0,
   "range_type": "normale",
-  "targets": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
-}
-```
-
-**Exemple de fichier JSON** :
-
-```json
-{
-  "reference": "Mitutoyo1",
-  "manufacturer": "Mitutoyo",
-  "description": "Comparateur de course 10 mm avec graduation 0,01 mm",
-  "graduation": 0.01,
-  "course": 10.0,
-  "range_type": "normale",
-  "targets": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+  "targets": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0],
+  "periodicite_controle_mois": 12
 }
 ```
 
@@ -217,7 +204,7 @@ Cet onglet proposera :
 * des **options d’export** (image et données) pour intégration au rapport,
 * des **seuils visuels** correspondant aux tolérances actives pour une lecture immédiate.
 
-> Statut : à compléter. Les graphiques se mettront à jour automatiquement lorsque de nouvelles mesures seront ajoutées.
+> Les graphiques (erreurs en µm ou mesures en mm) se mettent à jour via le bouton Rafraîchir. Seuils ±Emt affichés si règle disponible.
 
 ### 7.3 Finalisation (contrôle et génération du rapport)
 

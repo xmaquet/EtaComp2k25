@@ -1,5 +1,7 @@
 ## EtaComp2K25 — Carte du code (fichiers, rôles, liaisons)
 
+*Dernière mise à jour : 18 février 2026*
+
 ### Sommaire
 - [1. Points d’entrée et bootstrap](#1-points-dentrée-et-bootstrap)
 - [2. UI (onglets, widgets, thèmes)](#2-ui-onglets-widgets-thèmes)
@@ -71,62 +73,46 @@
 
 ## 3. Domaine et calculs
 
-- `models/comparator.py`:
-  - `RangeType` (enum + `display_name`).
-  - `ComparatorProfile` (pydantic):
-    - 11 cibles strictes; première 0.0; 0 ≤ t ≤ course; ordre non-décroissant; >0 pour graduation/course.
-    - `load_profile`/`save_profile`.
-    - Alias `Comparator`.
-- `models/session.py`:
-  - `Session` (métadonnées + `series: List[MeasureSeries]`).
-  - `MeasureSeries(target, readings: List[float])`.
-- `calculations/errors.py`:
-  - `ErrorResults`, `ErrorCalculator` (API attend `measurements` + `direction` → décalage avec modèle actuel).
-  - Non branché à la campagne réelle pour l’instant.
+- `models/comparator.py`: `ComparatorProfile` (11 cibles, periodicite_controle_mois 1–120).
+- `models/session.py`: `Session` (holder_ref, banc_ref, fidelity), `MeasureSeries`, `FidelitySeries`, `SessionV2`, `Measurement`, `Series`.
+- `models/detenteur.py`: `Detenteur` (code_es, libelle).
+- `models/banc_etalon.py`: `BancEtalon` (reference, marque_capteur, date_validite, is_default).
+- `core/session_adapter.py`: `build_session_from_runtime(Session)` → `SessionV2`.
+- `core/calculation_engine.py`: `CalculationEngine.compute(SessionV2)` → `CalculatedResults` (Emt, Eml, Eh, Ef).
+- `calculations/errors.py`: pont `compute_from_runtime_session` → `CalculationEngine`.
+- `ui/results_provider.py`: agrège SessionV2, calculs, verdict; `compute_all(rt_session)`.
 
 ## 4. Règles et évaluation
 
-- `rules/tolerances.py`:
-  - `ToleranceRule` (dataclass, validation bornes/tolérances).
-  - `ToleranceRuleEngine`: `load/save/validate/match/evaluate`.
-  - Règles par famille: `normale`, `grande`, `faible`, `limitee`.
+- `rules/tolerances.py`: `ToleranceRuleEngine` (UI édition), `load/save/validate/match`, règles par défaut.
+- `rules/tolerance_engine.py` et `rules/verdict.py`: verdict, matching. Règles par famille: `normale`, `grande`, `faible`, `limitee`.
   - `Verdict`: statut “apte/inapte/indetermine”, dépassements, messages.
   - Chemin par défaut: `~/.EtaComp2K25/rules/tolerances.json`.
 
 ## 5. I/O série, stockage et état
 
-- `io/serialio.py`:
-  - `SerialConnection` (open/read/write robustes).
-  - `SerialReaderThread`: assemble lignes (CR/LF/CRLF), parse via regex + décimale (virgule/point).
-  - `list_serial_ports()`.
-- `io/serial_manager.py`:
-  - `SerialManager` (QObject singleton):
-    - Config ASCII (regex, décimale).
-    - Config envoi (mode, trigger, EOL).
-    - `open/close`, `send_text`, signaux `line_received/debug/error`.
+- `io/serialio.py`: `SerialConnection`, `SerialReaderThread`, `list_serial_ports()`.
+- `io/tesa_reader.py`: `TesaSerialReader` (silence/EOL, masque 7-bit, regex valeur, decimals).
+- `io/serial_manager.py`: `SerialManager` (TesaSerialReader ou SerialReaderThread), config envoi, signaux.
 - `io/storage.py`:
-  - Persistance JSON (comparators/sessions) sous `~/.EtaComp2K25`.
-  - Tolère erreurs sur fichiers comparateurs (ignore silencieux).
+  - Comparateurs, sessions (`{ref}_{date}.json`), détenteurs, bancs étalon, export_config.
 - `state/session_store.py`:
-  - `SessionStore` (QObject singleton):
-    - `current`, `update_metadata`, `set_series`, `save`, `load_from_file`.
-    - Signaux: `session_changed`, `measures_updated`, `saved`.
+  - `update_metadata` (holder_ref, banc_ref), `set_series`, `set_fidelity`, `save`, `load_from_file`.
 
 ## 6. Outils et tests
 
 - Outils: `tools/migrate_comparators.py`, `tools/migrate_tolerances.py`, `tools/serial_probe.py`.
-- Tests:
-  - `tests/test_tolerances_engine.py`: couverture large (match, validate, evaluate, save/load).
-  - `tests/test_comparator_profile.py`: validations + I/O profil.
-  - `tests/test_smoke.py`: version.
+- Tests: `test_tolerances_engine.py`, `test_tolerance_engine.py`, `test_tolerance_engine_intervals.py`, `test_comparator_profile.py`, `test_calculation_engine.py`, `test_ui_results_provider.py`, `test_smoke.py`.
 
 ## 7. Flux exécutable principal
 
 - `etacomp` → `app.run()` → UI → `MainWindow`:
-  - Onglet `Session`: prépare contexte + COM.
-  - `Mesures`: lance campagne (consomme série) → `session_store` → `storage`.
-  - `Finalisation`: (placeholder calculs) + affichage + exports (TODO).
-  - `Paramètres ▸ Règles`: admin règles avec validation live.
+  - `Session`: métadonnées (détenteur, banc), COM, enregistrer session.
+  - `Mesures`: campagne → flux TESA → tableau → `session_store`.
+  - `Écarts fidélité`: capture S5 → `session_store.set_fidelity`.
+  - `Courbe`: `ResultsProvider.compute_all` → graphe.
+  - `Finalisation`: calcul erreurs + verdict (CalculationEngine + evaluate_tolerances).
+  - `Paramètres`: Règles, Détenteurs, Bancs, Exports, TESA.
 
 ## 8. Diagramme de dépendances (Mermaid)
 
@@ -135,28 +121,34 @@ graph TD
   A[app.run] --> B[MainWindow]
   B --> C[Tab Session]
   B --> D[Tab Mesures]
-  B --> E[Tab Bibliothèque]
-  B --> F[Tab Finalisation]
-  B --> G[Paramètres/Règles]
-  B --> H[HelpDialog]
+  B --> E[Tab Fidélité]
+  B --> F[Tab Courbe]
+  B --> G[Tab Finalisation]
+  B --> H[Tab Bibliothèque]
+  B --> I[Paramètres]
+  B --> J[HelpDialog]
 
   C --> S[SessionStore]
   C --> M[SerialManager]
-  C --> J[Storage]
+  C --> St[Storage]
 
   D --> S
   D --> M
-  D --> J
+  E --> S
+  E --> M
+  E --> RP[ResultsProvider]
+  F --> RP
+  G --> S
+  G --> RP
 
-  E --> J
-  F --> S
-  F --> R[ToleranceRuleEngine]
-  F --> X[ErrorCalculator]
+  H --> St
+  I --> St
+  I --> R[ToleranceRuleEngine]
 
-  M --> T[SerialReaderThread]
-  J --> P[ComparatorProfile/Session]
-
-  R --> P
+  M --> T[TesaSerialReader]
+  St --> P[Comparators/Session/Detenteurs/Bancs]
+  RP --> CE[CalculationEngine]
+  RP --> R
 ```
 
 ## 9. ADR
