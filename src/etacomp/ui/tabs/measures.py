@@ -27,6 +27,9 @@ BTN_DANGER_CSS = (
     "QPushButton:hover{background:#bb2d3b;}"
 )
 
+# Texte foncé pour cellules à fond clair (vert, jaune, gris) — lisible en mode dark
+TEXT_ON_LIGHT_BG = QColor(33, 37, 41)
+
 
 class MeasuresTab(QWidget):
     ZERO_TOL = 1e-6  # tolérance pour tester ~0
@@ -206,6 +209,7 @@ class MeasuresTab(QWidget):
             it = self._ensure_item(self.row_index_line, c)
             it.setText(str(c + 1))
             it.setBackground(QBrush(QColor(230, 230, 230)))  # gris clair
+            it.setForeground(QBrush(TEXT_ON_LIGHT_BG))
             f = it.font(); f.setBold(True); it.setFont(f)
             it.setToolTip("Index de colonne (cible #)")
 
@@ -475,6 +479,7 @@ class MeasuresTab(QWidget):
     def _color_filled_cell(self, row: int, col: int, target: float, measured: float):
         it = self._ensure_item(row, col)
         it.setBackground(QBrush(QColor(212, 237, 218)))  # vert doux
+        it.setForeground(QBrush(TEXT_ON_LIGHT_BG))
         delta = measured - target
         it.setToolTip(f"Cible: {target}\nMesuré: {measured}\nÉcart (mesuré - cible): {delta:+.6f}")
 
@@ -482,8 +487,10 @@ class MeasuresTab(QWidget):
         it = self._ensure_item(row, col)
         if it.text():
             it.setBackground(QBrush(QColor(212, 237, 218)))
+            it.setForeground(QBrush(TEXT_ON_LIGHT_BG))
         else:
             it.setBackground(QBrush())
+            it.setForeground(QBrush())
 
     def _write_current_cell(self, value: float) -> bool:
         # Prendre la valeur absolue (certains bancs renvoient des valeurs négatives selon le sens)
@@ -818,6 +825,7 @@ class MeasuresTab(QWidget):
         self._clear_highlight()
         it = self._ensure_item(row, col)
         it.setBackground(QBrush(QColor(255, 249, 196)))  # jaune doux = prochaine mesure
+        it.setForeground(QBrush(TEXT_ON_LIGHT_BG))
         self._hl_last = (row, col)
 
     def _update_status(self):

@@ -12,6 +12,8 @@ from ...core.calculation_engine import CalculatedResults
 from ..results_provider import ResultsProvider
 from ...rules.verdict import VerdictStatus
 from ...state.session_store import session_store
+from ...io.storage import get_default_banc_etalon, list_comparators
+from ...config.export_config import load_export_config
 
 
 class FinalizationTab(QWidget):
@@ -167,7 +169,35 @@ class FinalizationTab(QWidget):
         self.verdict_label.setStyleSheet("QLabel { padding: 12px; font-size: 14px; font-weight: bold; }")
     
     def _export_pdf(self):
-        QMessageBox.information(self, "Export PDF", "Fonctionnalité d'export PDF à implémenter.")
+        exp_cfg = load_export_config()
+        banc = get_default_banc_etalon()
+        lines = []
+        if exp_cfg.entite:
+            lines.append(f"Entité : {exp_cfg.entite}")
+        if exp_cfg.document_title:
+            lines.append(f"Titre : {exp_cfg.document_title}")
+        if exp_cfg.document_reference:
+            lines.append(f"Référence : {exp_cfg.document_reference}")
+        if exp_cfg.image_path:
+            lines.append(f"Image : {exp_cfg.image_path}")
+        if banc:
+            lines.append(f"Banc étalon : {banc.reference} — {banc.marque_capteur} — Validité : {banc.date_validite}")
+        comp = None
+        ref = getattr(session_store.current, "comparator_ref", None)
+        if ref:
+            for c in list_comparators():
+                if c.reference == ref:
+                    comp = c
+                    break
+        if comp:
+            period = getattr(comp, "periodicite_controle_mois", 12)
+            lines.append(f"Comparateur : {comp.reference} — Périodicité : {period} mois")
+        msg = "\n".join(lines) if lines else "Configurez Paramètres > Exports pour personnaliser."
+        QMessageBox.information(
+            self,
+            "Export PDF",
+            msg + "\n\nFonctionnalité d'export PDF à implémenter.",
+        )
     
     def _export_html(self):
         QMessageBox.information(self, "Export HTML", "Fonctionnalité d'export HTML à implémenter.")

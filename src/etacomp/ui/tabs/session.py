@@ -5,11 +5,11 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
     QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox,
-    QGroupBox, QFormLayout as QF, QWidget as QW, QLabel
+    QGroupBox, QFormLayout as QF, QWidget as QW, QLabel, QDialog, QDialogButtonBox
 )
 from PySide6.QtCore import QEvent, Signal
 
-from ...io.storage import list_comparators
+from ...io.storage import list_comparators, list_detenteurs, add_detenteur, upsert_comparator, list_bancs_etalon_for_session
 from ...state.session_store import session_store
 from ...io.serialio import list_serial_ports
 from ...io.serial_manager import serial_manager
@@ -30,8 +30,10 @@ BTN_SUCCESS_CSS = (
 
 
 class SessionTab(QWidget):
-    # Émis lorsqu'un comparateur est créé depuis une session chargée
+    # Émis lorsqu'un comparateur est créé depuis une session (chargement ou création à la volée)
     comparator_created = Signal(str)  # reference
+    # Émis lorsqu'un détenteur est créé depuis la session
+    detenteur_created = Signal()
     def __init__(self):
         super().__init__()
 
@@ -41,6 +43,10 @@ class SessionTab(QWidget):
         self.temp = QDoubleSpinBox(); self.temp.setRange(-50.0, 100.0); self.temp.setSuffix(" °C"); self.temp.setDecimals(1)
         self.humi = QDoubleSpinBox(); self.humi.setRange(0.0, 100.0); self.humi.setSuffix(" %"); self.humi.setDecimals(1)
         self.comparator_combo = QComboBox(); self.comparator_combo.setToolTip("Comparateur (dispositif étalon) utilisé.")
+        self.btn_add_comparator = QPushButton("+"); self.btn_add_comparator.setToolTip("Ajouter un comparateur"); self.btn_add_comparator.setMaximumWidth(32)
+        self.holder_combo = QComboBox(); self.holder_combo.setToolTip("Détenteur (code ES + libellé).")
+        self.btn_add_holder = QPushButton("+"); self.btn_add_holder.setToolTip("Ajouter un détenteur"); self.btn_add_holder.setMaximumWidth(32)
+        self.banc_combo = QComboBox(); self.banc_combo.setToolTip("Banc étalon (si différent du défaut — Paramètres > Bancs étalon).")
         self.series = QSpinBox(); self.series.setRange(1, 999); self.series.setToolTip("Nombre d’itérations (montée+descente).")
         self.measures = QSpinBox(); self.measures.setRange(1, 1000); self.measures.setToolTip("Nombre de mesures prévues / série.")
         self.obs = QTextEdit(); self.obs.setToolTip("Observations/conditions (texte libre multi‑lignes). Saisie validée à la perte de focus ou Ctrl+Entrée.")
@@ -50,7 +56,11 @@ class SessionTab(QWidget):
         form.addRow("Date", self.date)
         form.addRow("Température", self.temp)
         form.addRow("Humidité", self.humi)
-        form.addRow("Comparateur", self.comparator_combo)
+        comparator_row = QHBoxLayout(); comparator_row.addWidget(self.comparator_combo); comparator_row.addWidget(self.btn_add_comparator)
+        form.addRow("Comparateur", QW()); form.itemAt(form.rowCount() - 1, QF.FieldRole).widget().setLayout(comparator_row)
+        holder_row = QHBoxLayout(); holder_row.addWidget(self.holder_combo); holder_row.addWidget(self.btn_add_holder)
+        form.addRow("Détenteur", QW()); form.itemAt(form.rowCount() - 1, QF.FieldRole).widget().setLayout(holder_row)
+        form.addRow("Banc étalon", self.banc_combo)
         form.addRow("Itérations (séries)", self.series)
         form.addRow("Mesures / série (prévu)", self.measures)
         form.addRow("Observations", self.obs)
@@ -95,6 +105,8 @@ class SessionTab(QWidget):
         self.btn_new.clicked.connect(self.new_session)
         self.btn_load.clicked.connect(self.load_session)
         self.btn_save_session.clicked.connect(self._save_session)
+        self.btn_add_holder.clicked.connect(self._add_holder_popup)
+        self.btn_add_comparator.clicked.connect(self._add_comparator_popup)
         self.btn_refresh_ports.clicked.connect(self._refresh_ports)
         self.btn_connect.clicked.connect(self._do_connect)
         self.btn_disconnect.clicked.connect(self._do_disconnect)
@@ -104,6 +116,8 @@ class SessionTab(QWidget):
         self.temp.valueChanged.connect(self._push_metadata_from_ui)
         self.humi.valueChanged.connect(self._push_metadata_from_ui)
         self.comparator_combo.currentIndexChanged.connect(self._push_metadata_from_ui)
+        self.holder_combo.currentIndexChanged.connect(self._push_metadata_from_ui)
+        self.banc_combo.currentIndexChanged.connect(self._push_metadata_from_ui)
         self.series.valueChanged.connect(self._push_metadata_from_ui)
         self.measures.valueChanged.connect(self._push_metadata_from_ui)
         # Observations: on valide à la perte de focus (ou Ctrl+Entrée). On évite l'update à chaque caractère.
@@ -120,6 +134,8 @@ class SessionTab(QWidget):
 
         # Init
         self.reload_comparators()
+        self.reload_detenteurs()
+        self.reload_bancs()
         self._refresh_ports()
         self._refresh_from_store(session_store.current)
         # Appliquer l'état de connexion initial
@@ -139,6 +155,61 @@ class SessionTab(QWidget):
             idx = self.comparator_combo.findData(current_ref)
             if idx >= 0:
                 self.comparator_combo.setCurrentIndex(idx)
+
+    def reload_detenteurs(self):
+        current_ref = self.holder_combo.currentData()
+        self.holder_combo.clear()
+        self.holder_combo.addItem("(aucun)", userData=None)
+        for d in list_detenteurs():
+            self.holder_combo.addItem(d.display_name(), userData=d.code_es)
+        if current_ref is not None:
+            idx = self.holder_combo.findData(current_ref)
+            if idx >= 0:
+                self.holder_combo.setCurrentIndex(idx)
+
+    def _add_holder_popup(self):
+        """Ouvre une popup pour ajouter un détenteur (réutilise le dialogue Paramètres)."""
+        from .settings_detenteurs import DetenteurEditDialog
+        dlg = DetenteurEditDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            d = dlg.result_detenteur()
+            if d:
+                add_detenteur(d)
+                self.reload_detenteurs()
+                idx = self.holder_combo.findData(d.code_es)
+                if idx >= 0:
+                    self.holder_combo.setCurrentIndex(idx)
+                self._push_metadata_from_ui()
+                self.detenteur_created.emit()
+                QMessageBox.information(self, "Détenteur", f"Détenteur {d.code_es} ajouté et sélectionné.")
+
+    def reload_bancs(self):
+        """Recharge la liste des bancs (exclut le défaut)."""
+        current_ref = self.banc_combo.currentData()
+        self.banc_combo.clear()
+        self.banc_combo.addItem("(aucun / banc par défaut)", userData=None)
+        for b in list_bancs_etalon_for_session():
+            self.banc_combo.addItem(b.display_name(), userData=b.reference)
+        if current_ref is not None:
+            idx = self.banc_combo.findData(current_ref)
+            if idx >= 0:
+                self.banc_combo.setCurrentIndex(idx)
+
+    def _add_comparator_popup(self):
+        """Ouvre une popup pour créer un comparateur à la volée (réutilise le dialogue Bibliothèque)."""
+        from .library import ComparatorEditDialog
+        dlg = ComparatorEditDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            c = dlg.result_model()
+            if c:
+                upsert_comparator(c)
+                self.reload_comparators()
+                idx = self.comparator_combo.findData(c.reference)
+                if idx >= 0:
+                    self.comparator_combo.setCurrentIndex(idx)
+                self._push_metadata_from_ui()
+                self.comparator_created.emit(c.reference)
+                QMessageBox.information(self, "Comparateur", f"Comparateur {c.reference} ajouté et sélectionné.")
 
     def _refresh_ports(self):
         ports = list_serial_ports()
@@ -162,7 +233,7 @@ class SessionTab(QWidget):
 
     def _refresh_from_store(self, s):
         # Bloque les signaux le temps de remplir
-        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.obs):
+        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.holder_combo, self.banc_combo, self.obs):
             w.blockSignals(True)
 
         self.operator.setText(s.operator or "")
@@ -174,11 +245,21 @@ class SessionTab(QWidget):
             self.comparator_combo.setCurrentIndex(idx if idx >= 0 else 0)
         else:
             self.comparator_combo.setCurrentIndex(0)
+        if s.holder_ref:
+            idx = self.holder_combo.findData(s.holder_ref)
+            self.holder_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
+            self.holder_combo.setCurrentIndex(0)
+        if s.banc_ref:
+            idx = self.banc_combo.findData(s.banc_ref)
+            self.banc_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        else:
+            self.banc_combo.setCurrentIndex(0)
         self.series.setValue(max(1, s.series_count or 1))
         self.measures.setValue(max(1, s.measures_per_series or 1))
         self.obs.setPlainText(s.observations or "")
 
-        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.obs):
+        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.holder_combo, self.banc_combo, self.obs):
             w.blockSignals(False)
         self._obs_dirty = False
 
@@ -188,6 +269,8 @@ class SessionTab(QWidget):
             temperature_c=self.temp.value(),
             humidity_pct=self.humi.value(),
             comparator_ref=self.comparator_combo.currentData(),
+            holder_ref=self.holder_combo.currentData(),
+            banc_ref=self.banc_combo.currentData(),
             series_count=int(self.series.value()),
             measures_per_series=int(self.measures.value()),
             observations=self.obs.toPlainText().strip() or None,
@@ -201,6 +284,8 @@ class SessionTab(QWidget):
             temperature_c=self.temp.value(),
             humidity_pct=self.humi.value(),
             comparator_ref=self.comparator_combo.currentData(),
+            holder_ref=self.holder_combo.currentData(),
+            banc_ref=self.banc_combo.currentData(),
             series_count=int(self.series.value()),
             measures_per_series=int(self.measures.value()),
             observations=txt or None,
@@ -240,6 +325,8 @@ class SessionTab(QWidget):
         session_store.new_session()
         self.date.setText(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         self.reload_comparators()
+        self.reload_detenteurs()
+        self.reload_bancs()
 
     def load_session(self):
         files = "Sessions (*.json)"
@@ -252,6 +339,8 @@ class SessionTab(QWidget):
                 # Tenter de reconnecter le comparateur ; si manquant proposer de le recréer
                 self._on_session_loaded_try_rebind_comparator()
                 self.reload_comparators()
+                self.reload_detenteurs()
+                self.reload_bancs()
             except Exception as e:
                 QMessageBox.warning(self, "Erreur", f"Impossible de charger :\n{e}")
 

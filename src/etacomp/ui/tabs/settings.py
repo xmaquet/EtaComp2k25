@@ -12,6 +12,9 @@ from ...config.prefs import load_prefs, save_prefs, Preferences
 from ...config.defaults import DEFAULT_THEME
 from ...config.paths import get_data_dir
 from .settings_rules import SettingsRulesTab
+from .settings_detenteurs import SettingsDetenteursTab
+from .settings_bancs_etalon import SettingsBancsEtalonTab
+from .settings_export import SettingsExportTab
 from .parameters import ParametersTab
 
 
@@ -130,6 +133,18 @@ class SettingsTab(QWidget):
         # Onglet Règles de tolérances
         self.rules_tab = SettingsRulesTab()
         self.tabs.addTab(self.rules_tab, "Règles")
+
+        # Onglet Détenteurs
+        self.detenteurs_tab = SettingsDetenteursTab()
+        self.tabs.addTab(self.detenteurs_tab, "Détenteurs")
+
+        # Onglet Bancs étalon
+        self.bancs_etalon_tab = SettingsBancsEtalonTab()
+        self.tabs.addTab(self.bancs_etalon_tab, "Bancs étalon")
+
+        # Onglet Éléments d'export
+        self.export_tab = SettingsExportTab()
+        self.tabs.addTab(self.export_tab, "Exports")
 
         # Onglet TESA ASCII (profil d'envoi/parse du dispositif)
         self.tesa_tab = ParametersTab()

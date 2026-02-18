@@ -59,6 +59,24 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # Rafraîchir la liste des détenteurs dans Session quand modifiée depuis Paramètres
+        try:
+            self.settings_tab.detenteurs_tab.detenteurs_changed.connect(self.session_tab.reload_detenteurs)
+        except Exception:
+            pass
+
+        # Rafraîchir le tableau Détenteurs quand créé depuis Session
+        try:
+            self.session_tab.detenteur_created.connect(self.settings_tab.detenteurs_tab.refresh)
+        except Exception:
+            pass
+
+        # Rafraîchir la liste des bancs dans Session quand modifiée depuis Paramètres
+        try:
+            self.settings_tab.bancs_etalon_tab.bancs_changed.connect(self.session_tab.reload_bancs)
+        except Exception:
+            pass
+
         # --- Écouter les changements de thème depuis Paramètres ---
         try:
             self.settings_tab.themeChanged.connect(self._on_theme_changed)

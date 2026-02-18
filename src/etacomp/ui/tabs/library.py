@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QMessageBox,
     QAbstractItemView, QDialog, QFormLayout, QLineEdit, QTextEdit, QDialogButtonBox,
-    QDoubleSpinBox, QComboBox
+    QDoubleSpinBox, QSpinBox, QComboBox, QLabel
 )
 
 from ...io.storage import list_comparators, upsert_comparator, delete_comparator_by_reference
@@ -33,7 +33,15 @@ class ComparatorEditDialog(QDialog):
         # Ajouter les libellés complets mais garder les valeurs courtes
         for rt in RangeType:
             self.ed_range.addItem(rt.display_name, rt.value)
+        self.ed_periodicite = QSpinBox()
+        self.ed_periodicite.setRange(1, 120)
+        self.ed_periodicite.setValue(12)
+        self.ed_periodicite.setSuffix(" mois")
+        self.ed_periodicite.setToolTip("Périodicité de contrôle (utilisée dans l'export des résultats)")
         self.ed_targets = QLineEdit()
+        self.lbl_targets_count = QLabel("0 cible")
+        self.lbl_targets_count.setStyleSheet("color: #6c757d; font-size: 0.9em;")
+        self.ed_targets.textChanged.connect(self._update_targets_count)
 
         # Infobulles
         self.ed_ref.setToolTip("Identifiant unique du comparateur (ex: TESA_Mic_001)")
@@ -50,7 +58,9 @@ class ComparatorEditDialog(QDialog):
         form.addRow("Graduation (mm)", self.ed_grad)
         form.addRow("Course (mm)", self.ed_course)
         form.addRow("Famille", self.ed_range)
+        form.addRow("Périodicité de contrôle", self.ed_periodicite)
         form.addRow("Cibles (mm)", self.ed_targets)
+        form.addRow("", self.lbl_targets_count)  # compteur sous le champ
 
         layout.addLayout(form)
 
@@ -71,9 +81,27 @@ class ComparatorEditDialog(QDialog):
                     if self.ed_range.itemData(i) == initial.range_type.value:
                         self.ed_range.setCurrentIndex(i)
                         break
+            self.ed_periodicite.setValue(getattr(initial, "periodicite_controle_mois", 12))
             self.ed_targets.setText(
                 ", ".join(str(v) for v in initial.targets)
             )
+        self._update_targets_count()
+
+    def _update_targets_count(self):
+        """Compte les cibles saisies (séparateurs : et ;) et met à jour le label."""
+        text = (self.ed_targets.text() or "").strip()
+        items: list[str] = []
+        if text:
+            for part in text.split(";"):
+                items.extend(part.split(","))
+        count = len([t for t in items if t.strip()])
+        if count == 0:
+            txt = "0 cible"
+        elif count == 1:
+            txt = "1 cible"
+        else:
+            txt = f"{count} cibles"
+        self.lbl_targets_count.setText(txt)
 
     def result_model(self) -> Comparator | None:
         ref = (self.ed_ref.text() or "").strip()
@@ -95,9 +123,11 @@ class ComparatorEditDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Erreur", "Valeurs cibles invalides. Utilise des nombres séparés par des virgules.")
             return None
+        period = self.ed_periodicite.value()
         return Comparator(
             reference=ref, manufacturer=man, description=desc,
-            graduation=grad, course=course, range_type=range_type, targets=targets
+            graduation=grad, course=course, range_type=range_type, targets=targets,
+            periodicite_controle_mois=period,
         )
 
 
@@ -109,8 +139,8 @@ class LibraryTab(QWidget):
         layout = QVBoxLayout(self)
 
         # Table
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Référence", "Fabricant", "Graduation (mm)", "Course (mm)", "Famille", "Cibles"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["Référence", "Fabricant", "Graduation (mm)", "Course (mm)", "Famille", "Périodicité", "Cibles"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -155,9 +185,11 @@ class LibraryTab(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(f"{c.graduation:.3f}" if c.graduation else ""))
             self.table.setItem(row, 3, QTableWidgetItem(f"{c.course:.3f}" if c.course else ""))
             self.table.setItem(row, 4, QTableWidgetItem(c.range_type.display_name if c.range_type else ""))
+            period = getattr(c, "periodicite_controle_mois", 12)
+            self.table.setItem(row, 5, QTableWidgetItem(f"{period} mois"))
             # Afficher la liste complète des cibles avec formatage cohérent
             targets_text = ", ".join(f"{t:.3f}" for t in c.targets)
-            self.table.setItem(row, 5, QTableWidgetItem(targets_text))
+            self.table.setItem(row, 6, QTableWidgetItem(targets_text))
 
     # --------- actions ---------
     def on_add(self):

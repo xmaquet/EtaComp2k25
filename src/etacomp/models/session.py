@@ -24,6 +24,8 @@ class Session(BaseModel):
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
     comparator_ref: Optional[str] = None
+    holder_ref: Optional[str] = None  # code ES du détenteur
+    banc_ref: Optional[str] = None  # référence banc étalon (hors défaut)
 
     # Paramétrage de campagne
     series_count: int = 0

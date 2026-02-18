@@ -6,6 +6,8 @@ from typing import Type, TypeVar, List, Optional
 
 from ..config.paths import get_data_dir
 from ..models.comparator import Comparator
+from ..models.detenteur import Detenteur
+from ..models.banc_etalon import BancEtalon
 from ..models.session import Session
 
 T = TypeVar("T", Comparator, Session)
@@ -68,6 +70,89 @@ def delete_comparator_by_reference(reference: str) -> bool:
 
 def upsert_comparator(c: Comparator) -> Path:
     return save_comparator(c)
+
+
+# ---------- Détenteurs ----------
+DETENTEURS_FILE = "detenteurs.json"
+
+
+def list_detenteurs() -> List[Detenteur]:
+    """Charge la liste des détenteurs depuis le fichier JSON."""
+    fp = get_data_dir() / DETENTEURS_FILE
+    if not fp.exists():
+        return []
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+        items = data.get("detenteurs", data) if isinstance(data, dict) else data
+        return [Detenteur.model_validate(d) for d in items]
+    except Exception:
+        return []
+
+
+def save_detenteurs(detenteurs: List[Detenteur]) -> Path:
+    """Sauvegarde la liste des détenteurs."""
+    get_data_dir().mkdir(parents=True, exist_ok=True)
+    fp = get_data_dir() / DETENTEURS_FILE
+    payload = {"detenteurs": [d.model_dump() for d in detenteurs]}
+    fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return fp
+
+
+def add_detenteur(d: Detenteur) -> Path:
+    """Ajoute un détenteur (écrase si code_es existe déjà)."""
+    lst = list_detenteurs()
+    lst = [x for x in lst if x.code_es.strip().upper() != d.code_es.strip().upper()]
+    lst.append(d)
+    return save_detenteurs(lst)
+
+
+def delete_detenteur_by_code(code_es: str) -> bool:
+    """Supprime le détenteur ayant le code ES donné."""
+    code = code_es.strip().upper()
+    lst = [x for x in list_detenteurs() if x.code_es.strip().upper() != code]
+    if len(lst) == len(list_detenteurs()):
+        return False
+    save_detenteurs(lst)
+    return True
+
+
+# ---------- Bancs étalon ----------
+BANCS_ETALON_FILE = "bancs_etalon.json"
+
+
+def list_bancs_etalon() -> List[BancEtalon]:
+    """Charge la liste des bancs étalon."""
+    fp = get_data_dir() / BANCS_ETALON_FILE
+    if not fp.exists():
+        return []
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+        items = data.get("bancs", data) if isinstance(data, dict) else data
+        return [BancEtalon.model_validate(d) for d in items]
+    except Exception:
+        return []
+
+
+def save_bancs_etalon(bancs: List[BancEtalon]) -> Path:
+    """Sauvegarde la liste des bancs étalon."""
+    get_data_dir().mkdir(parents=True, exist_ok=True)
+    fp = get_data_dir() / BANCS_ETALON_FILE
+    payload = {"bancs": [b.model_dump() for b in bancs]}
+    fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return fp
+
+
+def get_default_banc_etalon() -> Optional[BancEtalon]:
+    """Retourne le banc étalon marqué par défaut (pour export PDF)."""
+    for b in list_bancs_etalon():
+        if b.is_default:
+            return b
+    return None
+
+
+def list_bancs_etalon_for_session() -> List[BancEtalon]:
+    """Retourne les bancs étalon sauf le défaut (pour l'onglet Session)."""
+    return [b for b in list_bancs_etalon() if not b.is_default]
 
 
 # ---------- Sessions ----------

@@ -38,6 +38,7 @@ class ComparatorProfile(BaseModel):
     course: float = Field(..., gt=0, description="Course maximale en millimètres")
     range_type: RangeType = Field(..., description="Type de comparateur")
     targets: List[float] = Field(..., min_length=11, max_length=11, description="Liste des 11 cibles en millimètres")
+    periodicite_controle_mois: int = Field(12, ge=1, le=120, description="Périodicité de contrôle en mois (pour export)")
     
     @property
     def filename(self) -> str:

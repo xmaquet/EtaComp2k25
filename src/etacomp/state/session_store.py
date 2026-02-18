@@ -40,6 +40,8 @@ class SessionStore(QObject):
         temperature_c: float | None,
         humidity_pct: float | None,
         comparator_ref: str | None,
+        holder_ref: str | None,
+        banc_ref: str | None,
         series_count: int,
         measures_per_series: int,
         observations: str | None,
@@ -49,6 +51,8 @@ class SessionStore(QObject):
         s.temperature_c = temperature_c
         s.humidity_pct = humidity_pct
         s.comparator_ref = comparator_ref
+        s.holder_ref = holder_ref
+        s.banc_ref = banc_ref
         s.series_count = series_count
         s.measures_per_series = measures_per_series
         s.observations = observations
