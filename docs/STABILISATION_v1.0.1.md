@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **62/62** |
+| Tests passants | 39/50 | **66/66** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -45,6 +45,13 @@ Répertoire `tests/fixtures/sessions/` :
 
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
+
+## Issue #7 (2025-06-02)
+
+- `Session.date` : `Field(default_factory=datetime.now)` (plus de date figée à l'import).
+- Module `datetime_utils.py` : `datetime.now(timezone.utc)` à la place de `utcnow()`.
+- `SessionV2.created_at_iso` dérivé de la date runtime de la session.
+- Plus de `DeprecationWarning utcnow` dans pytest (66 tests).
 
 ## Issue #6 (2025-06-02)
 

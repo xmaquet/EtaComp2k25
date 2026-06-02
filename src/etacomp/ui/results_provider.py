@@ -16,6 +16,7 @@ from typing import Optional, Tuple, List, Dict, Any
 from pathlib import Path
 
 from ..core.session_adapter import build_session_from_runtime
+from ..core.datetime_utils import utc_now_iso
 from ..core.calculation_engine import CalculationEngine, CalculatedResults
 from ..models.session import SessionV2, Series, SeriesKind, Direction, Measurement
 from ..rules.tolerance_engine import ToleranceRuleEngine
@@ -99,7 +100,7 @@ class ResultsProvider:
                 direction=dir_enum,
                 series_index=5,
                 sample_index=i,
-                timestamp_iso=ts[i] if i < len(ts) else __import__("datetime").datetime.utcnow().isoformat(),
+                timestamp_iso=ts[i] if i < len(ts) else utc_now_iso(),
             ))
         s5 = Series(index=5, kind=SeriesKind.FIDELITY, direction=dir_enum, targets_mm=[float(target_mm)], measurements=m_list)
         v2.series.append(s5)

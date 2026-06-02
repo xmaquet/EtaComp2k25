@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Optional
 
 from ..models.session import (
@@ -10,6 +9,7 @@ from ..models.session import (
 )
 from ..io.storage import list_comparators
 from .campaign_cycles import MAX_CAMPAIGN_CYCLES, clamp_series_count
+from .datetime_utils import runtime_created_iso, utc_now_iso, utc_session_id_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,8 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
     - series_count contient le nombre d'itérations montée+descente (cycles)
     """
     schema_version = 1
-    sid = f"session-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-    created_iso = datetime.utcnow().isoformat()
+    created_iso = runtime_created_iso(getattr(rt, "date", None))
+    sid = f"session-{rt.date.strftime('%Y%m%d%H%M%S')}" if getattr(rt, "date", None) else f"session-{utc_session_id_suffix()}"
 
     # Déterminer les cibles (depuis rt.series qui liste par cible)
     targets = [float(ms.target) for ms in rt.series] if rt.series else []
@@ -93,7 +93,7 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
                 direction=direction,
                 series_index=series_index,
                 sample_index=t_i,
-                timestamp_iso=datetime.utcnow().isoformat(),
+                timestamp_iso=utc_now_iso(),
             )
             # Ajouter dans la bonne série
             for s in main_series:
@@ -122,7 +122,7 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
                     direction=dir_enum,
                     series_index=5,
                     sample_index=i,
-                    timestamp_iso=(fid.timestamps[i] if i < len(getattr(fid, "timestamps", []) or []) else datetime.utcnow().isoformat()),
+                    timestamp_iso=(fid.timestamps[i] if i < len(getattr(fid, "timestamps", []) or []) else utc_now_iso()),
                 ))
             s5 = Series(index=5, kind=SeriesKind.FIDELITY, direction=dir_enum, targets_mm=[float(fid.target)], measurements=m_list)
             series_all.append(s5)

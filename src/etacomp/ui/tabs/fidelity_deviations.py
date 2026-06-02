@@ -268,8 +268,8 @@ class FidelityDeviationsTab(QWidget):
         self._last_sample_val = v
         self._last_sample_ts = now
         self._samples.append(v)
-        from datetime import datetime
-        self._timestamps.append(datetime.utcnow().isoformat())
+        from ...core.datetime_utils import utc_now_iso
+        self._timestamps.append(utc_now_iso())
         row = self.table.rowCount()
         self.table.insertRow(row)
         self.table.setItem(row, 0, QTableWidgetItem(str(row)))

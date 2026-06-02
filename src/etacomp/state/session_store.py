@@ -4,6 +4,8 @@ from typing import List
 
 from PySide6.QtCore import QObject, Signal
 
+from datetime import datetime
+
 from ..models.session import Session, MeasureSeries, FidelitySeries
 from ..config.prefs import load_prefs
 from ..core.campaign_cycles import clamp_series_count, MAX_CAMPAIGN_CYCLES
@@ -24,6 +26,7 @@ class SessionStore(QObject):
         prefs = load_prefs()
         return Session(
             operator="",
+            date=datetime.now(),
             series_count=prefs.default_series_count,
             measures_per_series=prefs.default_measures_per_series,
         )
