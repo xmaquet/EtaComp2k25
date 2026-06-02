@@ -38,7 +38,7 @@ Opérateur métrologue : réalise les campagnes de mesure, consulte les résulta
 | Calculs d’erreurs (Emt, Eml, Ef, Eh) | Oui |
 | Évaluation tolérances selon règles (famille, graduation, course) | Oui |
 | Courbe d’étalonnage | Oui |
-| Export PDF / HTML | Non (placeholders uniquement) |
+| Export PDF (constat de vérification) | Oui |
 | Sauvegarde/chargement sessions | Oui |
 | Bibliothèques (comparateurs, détenteurs, bancs étalon) | Oui |
 
@@ -58,7 +58,8 @@ Opérateur métrologue : réalise les campagnes de mesure, consulte les résulta
 | **core/session_adapter** | Conversion Session (runtime) → SessionV2 (canonique) pour les calculs |
 | **core/calculation_engine** | Calcul des erreurs Emt, Eml, Eh, Ef à partir de SessionV2 |
 | **rules/tolerance_engine** | Chargement règles, matching famille/graduation/course |
-| **rules/verdict** | Évaluation erreurs vs limites, production verdict (apte/inapte/indéterminé) |
+| **rules/verdict** | Évaluation erreurs vs limites, production verdict (conforme/non conforme/indéterminé) |
+| **io/pdf_exporter** | Génération du constat de vérification PDF (ReportLab) |
 | **rules/tolerances** | Règles par défaut, sauvegarde/chargement pour l’UI |
 | **calculations/errors** | Pont de compatibilité vers CalculationEngine |
 | **ui/tabs** | Onglets Session, Mesures, Écarts fidélité, Courbe, Finalisation, Bibliothèque, Paramètres |
@@ -103,7 +104,7 @@ UI (Finalisation, Courbe, Fidélité)
                    ↓
            Verdict ← evaluate_tolerances(profile, results, engine)
                    ↓
-           Affichage (apte / inapte / indéterminé)
+           Affichage (conforme / non conforme / indéterminé)
 ```
 
 ---
@@ -536,8 +537,8 @@ Voir section 6.
 |-----------|---------|
 | Aucune règle correspondante | INDETERMINE |
 | Ef requise par la règle mais Ef = None | INDETERMINE |
-| Une erreur mesurée > limite + 1e-9 | INAPTE |
-| Toutes les erreurs <= limites | APTE |
+| Une erreur mesurée > limite + 1e-9 | NON CONFORME |
+| Toutes les erreurs <= limites | CONFORME |
 
 Comparaison : `measured > limit + 1e-9` → dépassement.  
 Tolérance numérique : 1e-9 mm.
@@ -631,13 +632,13 @@ Tolérance numérique : 1e-9 mm.
 ### 7.5 Onglet Finalisation
 
 **Contenu** :
-- Bandeau verdict (APTE / NON CONFORME / INDÉTERMINÉ)
+- Bandeau verdict (CONFORME / NON CONFORME / INDÉTERMINÉ)
 - Tableau erreurs : Emt, Eml, Eh, Ef
 - Messages détaillés (point critique, hystérésis, fidélité, règle, limites)
 
 **Actions** :
 - Calculer les erreurs : ResultsProvider.compute_all → affichage
-- Exporter PDF / HTML : placeholders (message d’information uniquement)
+- Exporter PDF : constat de vérification (entête, session, courbe, verdict, observations, signature) ; fichier dans `~/.EtaComp2K25/exports/` au nom `{comparateur}_{AAMMJJ-n°}.pdf`
 
 ---
 

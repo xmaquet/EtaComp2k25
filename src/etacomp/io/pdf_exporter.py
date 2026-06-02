@@ -453,9 +453,9 @@ def export_pdf(
     # ---- F. BLOC VERDICT ----
     status = "Indéterminé"
     if verdict:
-        if verdict.status.value == "apte":
+        if verdict.status.value == "conforme":
             status = "Conforme"
-        elif verdict.status.value == "inapte":
+        elif verdict.status.value == "non_conforme":
             status = "Non-conforme"
 
     y -= 8 * mm

@@ -163,8 +163,8 @@ class TestToleranceRuleEngine:
         assert len(errors) > 0
         assert any("dupliquée" in error for error in errors)
     
-    def test_evaluate_apte(self):
-        """Test évaluation avec verdict apte."""
+    def test_evaluate_conforme(self):
+        """Test évaluation avec verdict conforme."""
         profile = ComparatorProfile(
             reference="TEST",
             graduation=0.01,
@@ -176,13 +176,13 @@ class TestToleranceRuleEngine:
         errors = {"Emt": 0.010, "Eml": 0.008, "Ef": 0.002, "Eh": 0.008}
         verdict = self.engine.evaluate(profile, errors)
         
-        assert verdict.status == "apte"
+        assert verdict.status == "conforme"
         assert verdict.rule is not None
         assert verdict.exceed is None
         assert len(verdict.messages) == 0
     
-    def test_evaluate_inapte(self):
-        """Test évaluation avec verdict inapte."""
+    def test_evaluate_non_conforme(self):
+        """Test évaluation avec verdict non conforme."""
         profile = ComparatorProfile(
             reference="TEST",
             graduation=0.01,
@@ -194,7 +194,7 @@ class TestToleranceRuleEngine:
         errors = {"Emt": 0.020, "Eml": 0.015, "Ef": 0.005, "Eh": 0.015}
         verdict = self.engine.evaluate(profile, errors)
         
-        assert verdict.status == "inapte"
+        assert verdict.status == "non_conforme"
         assert verdict.rule is not None
         assert verdict.exceed is not None
         assert len(verdict.messages) > 0

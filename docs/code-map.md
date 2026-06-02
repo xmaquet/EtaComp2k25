@@ -52,7 +52,7 @@
 
 - `ui/tabs/finalization.py`:
   - Charge moteur de règles (défaut ou fichier).
-  - “Calculer les erreurs”: résultats neutres et messages; tables d’affichage; export PDF/HTML TODO.
+  - “Calculer les erreurs”: résultats neutres et messages; tables d’affichage; export PDF (`io/pdf_exporter.py`).
 
 - `ui/settings.py`:
   - Thème (light/dark), valeurs par défaut session, autosave, langue, data dir, onglet Règles.

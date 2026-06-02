@@ -43,7 +43,7 @@ Version: 0.2.0 — Dernière mise à jour : 18 février 2026
 - Règles: `rules/tolerances.py` (UI), `rules/tolerance_engine.py` (verdict), `rules/verdict.py` (évaluation tolérances).
 - Calculs: `core/calculation_engine.py` (SessionV2 → CalculatedResults), `core/session_adapter.py` (Session runtime → SessionV2), `calculations/errors.py` (pont compatibilité).
 - Résultats: `ui/results_provider.py` (agrège SessionV2, calculs, verdict).
-- I/O & état: `io/serialio.py`, `io/tesa_reader.py`, `io/serial_manager.py`, `io/storage.py` (comparateurs, détenteurs, bancs étalon, sessions, export_config), `state/session_store.py`.
+- I/O & état: `io/serialio.py`, `io/tesa_reader.py`, `io/serial_manager.py`, `io/storage.py`, `io/pdf_exporter.py` (comparateurs, détenteurs, bancs étalon, sessions, export_config), `state/session_store.py`.
 - Config: `config/export_config.py`, `config/tesa.py`, `config/prefs.py`.
 - Outils: scripts de migration et sonde série.
 
@@ -55,7 +55,7 @@ Version: 0.2.0 — Dernière mise à jour : 18 février 2026
   2) `Mesures`: lancer campagne (flux série, tableau, moyennes) ; bouton sauvegarde déplacé vers Session.
   3) `Écarts de fidélité`: capture série 5 au point critique.
   4) `Courbe d’étalonnage`: graphe erreurs/mesures, seuils Emt.
-  5) `Finalisation`: calcul erreurs (CalculationEngine), verdict tolérances, export PDF/HTML (placeholders).
+  5) `Finalisation`: calcul erreurs (CalculationEngine), verdict tolérances (conforme/non conforme), export PDF.
   6) `Bibliothèque`: gérer comparateurs (11 cibles, périodicité).
   7) `Paramètres`: Règles, Détenteurs, Bancs étalon, Exports, TESA ASCII.
 

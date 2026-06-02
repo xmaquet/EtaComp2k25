@@ -8,7 +8,8 @@ Application de métrologie pour la vérification des comparateurs mécaniques ou
 - **Session** : opérateur, conditions ambiantes, comparateur, détenteur, banc étalon, connexion série TESA
 - **Mesures** : campagne 4 séries (2 cycles montée/descente), acquisition automatique ou manuelle, série 5 (fidélité au point critique)
 - **Calculs** : erreur totale, locale, fidélité, hystérésis
-- **Évaluation** : règles de tolérances par famille/graduation/course, verdict (apte / inapte / indéterminé)
+- **Évaluation** : règles de tolérances par famille/graduation/course, verdict (conforme / non conforme / indéterminé)
+- **Export** : constat de vérification PDF depuis Finalisation
 - **Visualisation** : courbe d’étalonnage, écarts de fidélité
 - **Paramètres** : thème, règles, détenteurs, bancs étalon, configuration export (entité, image, titre, normes), TESA ASCII
 
@@ -34,4 +35,4 @@ Stockage dans `~/.EtaComp2K25/` : comparators, sessions, rules, detenteurs.json,
 
 ## Dépendances
 
-Python ≥ 3.10, PySide6, pydantic, pyserial, matplotlib.
+Python ≥ 3.10, PySide6, pydantic, pyserial, matplotlib, reportlab.

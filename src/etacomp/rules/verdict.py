@@ -9,8 +9,8 @@ from ..core.calculation_engine import CalculatedResults
 
 
 class VerdictStatus(str, Enum):
-    APTE = "apte"
-    INAPTE = "inapte"
+    CONFORME = "conforme"
+    NON_CONFORME = "non_conforme"
     INDETERMINE = "indetermine"
 
 
@@ -76,7 +76,7 @@ def evaluate_tolerances(
     messages: list[str] = []
 
     # Comparaisons
-    status = VerdictStatus.APTE
+    status = VerdictStatus.CONFORME
     criteria = [k for k in ("Emt", "Eml", "Ef", "Eh") if k in limits]
     for key in criteria:
         m = measured[key]
@@ -92,7 +92,7 @@ def evaluate_tolerances(
                 f"Erreur {label_fr(key)} mesurée: {_fmt_mm(m)} mm ; "
                 f"limite: {_fmt_mm(lim)} mm ; dépassement: {_fmt_mm(m - lim)} mm."
             )
-            status = VerdictStatus.INAPTE
+            status = VerdictStatus.NON_CONFORME
 
     # Fidélité
     ef = measured["Ef"]
@@ -100,11 +100,13 @@ def evaluate_tolerances(
     # conserver message dédié si Ef requise mais absente
     if ("Ef" in limits) and (ef is None):
         messages.append("Erreur de fidélité indisponible: réaliser la série 5 (fidélité) au point critique.")
-        if status == VerdictStatus.APTE:
+        if status == VerdictStatus.CONFORME:
             status = VerdictStatus.INDETERMINE
 
-    if status == VerdictStatus.APTE:
-        messages.append("Toutes les erreurs mesurées respectent les limites de tolérance. Comparateur APTE.")
+    if status == VerdictStatus.CONFORME:
+        messages.append(
+            "Toutes les erreurs mesurées respectent les limites de tolérance. Comparateur conforme."
+        )
 
     return Verdict(
         status=status,

@@ -61,7 +61,7 @@ def test_overlap_detection(tmp_path: Path):
         assert True
 
 
-def test_verdict_apte(tmp_path: Path):
+def test_verdict_conforme(tmp_path: Path):
     p = make_rules(tmp_path)
     eng = ToleranceRuleEngine.load(p)
     profile = {"range_type": "normale", "graduation": 0.01, "course": 5.0}
@@ -73,7 +73,7 @@ def test_verdict_apte(tmp_path: Path):
         calibration_points=[]
     )
     ver = evaluate_tolerances(profile, results, eng)
-    assert ver.status == VerdictStatus.APTE
+    assert ver.status == VerdictStatus.CONFORME
     assert not ver.exceed
 
 

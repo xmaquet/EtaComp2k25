@@ -68,15 +68,12 @@ class FinalizationTab(QWidget):
             "QPushButton:hover{background:#0b5ed7;}"
         )
         self.btn_export_pdf = QPushButton("Exporter PDF")
-        self.btn_export_html = QPushButton("Exporter HTML")
         
         self.btn_calculate.clicked.connect(self._calculate_errors)
         self.btn_export_pdf.clicked.connect(self._export_pdf)
-        self.btn_export_html.clicked.connect(self._export_html)
         
         action_layout.addWidget(self.btn_calculate)
         action_layout.addStretch()
-        action_layout.addWidget(self.btn_export_html)
         action_layout.addWidget(self.btn_export_pdf)
         
         layout.addLayout(action_layout)
@@ -254,16 +251,13 @@ class FinalizationTab(QWidget):
         except Exception:
             pass
     
-    def _export_html(self):
-        QMessageBox.information(self, "Export HTML", "Fonctionnalité d'export HTML à implémenter.")
-
     # ----- Verdict & limites -----
     def _display_verdict_and_limits(self, verdict):
         # Bandeau coloré
-        if verdict.status == VerdictStatus.APTE:
+        if verdict.status == VerdictStatus.CONFORME:
             self.verdict_label.setText("✅ CONFORME")
             self.verdict_label.setStyleSheet("QLabel { background: #d4edda; color: #155724; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 4px; }")
-        elif verdict.status == VerdictStatus.INAPTE:
+        elif verdict.status == VerdictStatus.NON_CONFORME:
             self.verdict_label.setText("❌ NON CONFORME")
             self.verdict_label.setStyleSheet("QLabel { background: #f8d7da; color: #721c24; padding: 12px; font-size: 14px; font-weight: bold; border-radius: 4px; }")
         else:

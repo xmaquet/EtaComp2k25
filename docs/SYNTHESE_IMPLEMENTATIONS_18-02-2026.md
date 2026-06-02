@@ -159,7 +159,7 @@ class ExportConfig(BaseModel):
 - Stockage dans `export_config.json`.
 - Onglet **Paramètres > Exports** : formulaire avec entité, image (parcourir/effacer), titre, référence, texte de normes.
 - Aperçu de l’image sélectionnée dans l’interface.
-- Ces données servent aux futurs exports PDF/HTML.
+- Ces données servent à l’export PDF du constat de vérification.
 
 ---
 
@@ -173,7 +173,7 @@ class ExportConfig(BaseModel):
 - `settings_rules.py` — sauvegarde, restauration défaut, import, export des règles
 - `parameters.py` — rétablissement des valeurs par défaut TESA ASCII
 - `session.py` — enregistrement session, création détenteur/comparateur
-- `finalization.py` — export PDF/HTML
+- `finalization.py` — export PDF
 
 **Principe :** après chaque action de sauvegarde ou suppression réussie, un `QMessageBox.information` confirme le succès à l’utilisateur (ex. : « Comparateur TESA_Mic_001 enregistré », « Détenteur ES12345 ajouté », « Session enregistrée : … »).
 

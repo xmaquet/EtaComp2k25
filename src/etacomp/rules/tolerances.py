@@ -87,7 +87,7 @@ class ToleranceRule:
 @dataclass
 class Verdict:
     """Résultat d'évaluation des tolérances."""
-    status: Literal["apte", "inapte", "indetermine"]
+    status: Literal["conforme", "non_conforme", "indetermine"]
     rule: Optional[ToleranceRule] = None
     exceed: Optional[Dict[str, float]] = None  # mm au-delà des limites
     messages: List[str] = None
@@ -269,7 +269,7 @@ class ToleranceRuleEngine:
         # Comparer les erreurs aux limites
         exceed = {}
         messages = []
-        status = "apte"
+        status = "conforme"
         
         for error_name, limit_name in [("Emt", "Emt"), ("Eml", "Eml"), ("Ef", "Ef"), ("Eh", "Eh")]:
             if error_name in errors:
@@ -278,7 +278,7 @@ class ToleranceRuleEngine:
                 if measured > limit + EPS:
                     delta = measured - limit
                     exceed[error_name] = delta
-                    status = "inapte"
+                    status = "non_conforme"
                     messages.append(
                         f"{error_name} dépasse de {delta:.3f} mm "
                         f"(limite {limit:.3f} mm, mesuré {measured:.3f} mm)"
