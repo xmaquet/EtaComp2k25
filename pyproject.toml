@@ -19,6 +19,11 @@ dependencies = [
   "reportlab>=4.0"
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
 [project.scripts]
 etacomp = "etacomp.app:run"
 
@@ -32,3 +37,7 @@ where = ["src"]
 etacomp = [
   
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

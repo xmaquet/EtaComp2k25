@@ -34,6 +34,16 @@ Stockage dans `~/.EtaComp2K25/` : comparators, sessions, rules, detenteurs.json,
 - `docs/code-map.md` : carte du code
 - Aide intégrée : menu Aide ou F1
 
+## Tests
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pytest tests/ -v
+```
+
+La CI GitHub Actions exécute `pytest` sur les branches `main` et `stabilisation/v1.0.1`. Voir `docs/STABILISATION_v1.0.1.md` pour l’inventaire des échecs initiaux (issue #1).
+
 ## Dépendances
 
-Python ≥ 3.10, PySide6, pydantic, pyserial, matplotlib, reportlab.
+Python ≥ 3.10, PySide6, pydantic, pyserial, matplotlib, reportlab. Développement : `pip install -e ".[dev]"` (pytest).

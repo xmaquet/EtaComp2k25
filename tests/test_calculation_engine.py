@@ -29,11 +29,11 @@ def make_session_full():
         targets_mm=list(targets),
         measurements=[Measurement(t, t - 0.01, Direction.DOWN, 4, i, "2025-01-01T00:00:00Z") for i, t in enumerate(targets)]
     )
-    # Fidelity (S5): at target 2.0, direction UP, samples with small spread
+    # Fidélité (S5) : même cible/direction que le point critique Emt (cible 1.0, montée)
     s5 = Series(
         index=5, kind=SeriesKind.FIDELITY, direction=Direction.UP,
-        targets_mm=[2.0],
-        measurements=[Measurement(2.0, v, Direction.UP, 5, i, "2025-01-01T00:00:00Z") for i, v in enumerate([2.00, 2.01, 1.99, 2.00, 2.00])]
+        targets_mm=[1.0],
+        measurements=[Measurement(1.0, v, Direction.UP, 5, i, "2025-01-01T00:00:00Z") for i, v in enumerate([1.00, 1.01, 0.99, 1.00, 1.00])]
     )
     sess = SessionV2(
         schema_version=1, session_id="test", created_at_iso="2025-01-01T00:00:00Z",
