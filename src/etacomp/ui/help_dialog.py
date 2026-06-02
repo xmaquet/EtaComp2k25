@@ -82,7 +82,7 @@ def md_to_html_with_anchors(md_text: str, toc: List[Dict]) -> str:
 class HelpDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Documentation EtaComp")
+        self.setWindowTitle("Documentation EtaCompNG")
         self.resize(1200, 800)
 
         self._prefs = load_prefs()

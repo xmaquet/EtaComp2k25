@@ -2,12 +2,37 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QMessageBox,
-    QAbstractItemView, QDialog, QFormLayout, QLineEdit, QTextEdit, QDialogButtonBox,
+    QAbstractItemView, QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QDoubleSpinBox, QSpinBox, QComboBox, QLabel
 )
+from pydantic import ValidationError
 
 from ...io.storage import list_comparators, upsert_comparator, delete_comparator_by_reference
 from ...models.comparator import Comparator, RangeType
+
+TARGET_COUNT_REQUIRED = 11
+
+
+def parse_targets_field(text: str) -> list[float]:
+    """Parse les cibles (séparateurs , et ;). Lève ValueError si token invalide."""
+    items: list[str] = []
+    raw = (text or "").strip()
+    if raw:
+        for part in raw.split(";"):
+            items.extend(part.split(","))
+    return [float(tok.replace(",", ".").strip()) for tok in items if tok.strip()]
+
+
+def count_targets_field(text: str) -> int:
+    try:
+        return len(parse_targets_field(text))
+    except ValueError:
+        return -1
+
+
+def format_validation_error(exc: ValidationError) -> str:
+    lines = [str(e.get("msg", "")) for e in exc.errors() if e.get("msg")]
+    return "\n".join(lines) if lines else "Profil comparateur invalide."
 
 
 class ComparatorEditDialog(QDialog):
@@ -64,10 +89,14 @@ class ComparatorEditDialog(QDialog):
 
         layout.addLayout(form)
 
+        self._validated_model: Comparator | None = None
         btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self.accept)
+        self._ok_button = btns.button(QDialogButtonBox.StandardButton.Ok)
+        btns.accepted.connect(self._on_ok_clicked)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+
+        self.ed_ref.textChanged.connect(self._update_targets_count)
 
         if initial is not None:
             self.ed_ref.setText(initial.reference)
@@ -88,47 +117,68 @@ class ComparatorEditDialog(QDialog):
         self._update_targets_count()
 
     def _update_targets_count(self):
-        """Compte les cibles saisies (séparateurs : et ;) et met à jour le label."""
+        """Compte les cibles saisies et active OK seulement si 11 cibles + référence."""
         text = (self.ed_targets.text() or "").strip()
-        items: list[str] = []
-        if text:
-            for part in text.split(";"):
-                items.extend(part.split(","))
-        count = len([t for t in items if t.strip()])
-        if count == 0:
+        count = count_targets_field(text)
+        if count < 0:
+            txt = "Valeurs invalides"
+            style = "color: #dc3545; font-size: 0.9em; font-weight: 600;"
+        elif count == 0:
             txt = "0 cible"
+            style = "color: #dc3545; font-size: 0.9em;"
         elif count == 1:
             txt = "1 cible"
-        else:
+            style = "color: #dc3545; font-size: 0.9em;"
+        elif count == TARGET_COUNT_REQUIRED:
             txt = f"{count} cibles"
+            style = "color: #198754; font-size: 0.9em; font-weight: 600;"
+        else:
+            txt = f"{count} cibles (il en faut {TARGET_COUNT_REQUIRED})"
+            style = "color: #dc3545; font-size: 0.9em; font-weight: 600;"
         self.lbl_targets_count.setText(txt)
+        self.lbl_targets_count.setStyleSheet(style)
+        has_ref = bool((self.ed_ref.text() or "").strip())
+        if self._ok_button is not None:
+            self._ok_button.setEnabled(has_ref and count == TARGET_COUNT_REQUIRED)
 
-    def result_model(self) -> Comparator | None:
+    def _try_build_model(self) -> tuple[Comparator | None, str | None]:
         ref = (self.ed_ref.text() or "").strip()
         if not ref:
-            return None
-        man = (self.ed_man.text() or "").strip() or None
-        desc = (self.ed_desc.text() or "").strip() or None
-        grad = self.ed_grad.value()
-        course = self.ed_course.value()
-        range_type = RangeType(self.ed_range.currentData())
-        targets_text = (self.ed_targets.text() or "").strip()
+            return None, "La référence est obligatoire."
         try:
-            # Séparateurs autorisés: ',' et ';'
-            items: list[str] = []
-            if targets_text:
-                for part in targets_text.split(";"):
-                    items.extend(part.split(","))
-            targets = [float(tok.replace(",", ".").strip()) for tok in items if tok.strip()]
+            targets = parse_targets_field(self.ed_targets.text())
         except ValueError:
-            QMessageBox.warning(self, "Erreur", "Valeurs cibles invalides. Utilise des nombres séparés par des virgules.")
-            return None
-        period = self.ed_periodicite.value()
-        return Comparator(
-            reference=ref, manufacturer=man, description=desc,
-            graduation=grad, course=course, range_type=range_type, targets=targets,
-            periodicite_controle_mois=period,
-        )
+            return None, "Valeurs cibles invalides. Utilise des nombres séparés par des virgules ou des points-virgules."
+        if len(targets) != TARGET_COUNT_REQUIRED:
+            return None, (
+                f"Le profil doit contenir exactement {TARGET_COUNT_REQUIRED} cibles "
+                f"(actuel : {len(targets)})."
+            )
+        try:
+            model = Comparator(
+                reference=ref,
+                manufacturer=(self.ed_man.text() or "").strip() or None,
+                description=(self.ed_desc.text() or "").strip() or None,
+                graduation=self.ed_grad.value(),
+                course=self.ed_course.value(),
+                range_type=RangeType(self.ed_range.currentData()),
+                targets=targets,
+                periodicite_controle_mois=self.ed_periodicite.value(),
+            )
+        except ValidationError as exc:
+            return None, format_validation_error(exc)
+        return model, None
+
+    def _on_ok_clicked(self):
+        model, err = self._try_build_model()
+        if err:
+            QMessageBox.warning(self, "Profil comparateur", err)
+            return
+        self._validated_model = model
+        self.accept()
+
+    def result_model(self) -> Comparator | None:
+        return self._validated_model
 
 
 class LibraryTab(QWidget):

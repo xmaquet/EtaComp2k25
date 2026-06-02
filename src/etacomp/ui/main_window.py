@@ -88,8 +88,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # --- Menu Aide > À propos ---
-        self._setup_help_menu()
+        self._setup_menus()
 
         # --- Autosave (Paramètres > Sauvegarde) ---
         self._autosave_timer = QTimer(self)
@@ -111,10 +110,40 @@ class MainWindow(QMainWindow):
             pass
 
     # ===== Menus =====
-    def _setup_help_menu(self):
+    def _setup_menus(self):
         menubar = self.menuBar()
-        aide_menu = menubar.addMenu("&Aide")
 
+        fichier_menu = menubar.addMenu("&Fichier")
+
+        new_action = QAction("&Nouvelle session", self)
+        new_action.setShortcut("Ctrl+N")
+        new_action.triggered.connect(self.session_tab.new_session)
+        fichier_menu.addAction(new_action)
+
+        load_action = QAction("&Charger session…", self)
+        load_action.setShortcut("Ctrl+O")
+        load_action.triggered.connect(self.session_tab.load_session)
+        fichier_menu.addAction(load_action)
+
+        save_action = QAction("&Enregistrer la session…", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self.session_tab._save_session)
+        fichier_menu.addAction(save_action)
+
+        fichier_menu.addSeparator()
+
+        export_pdf_action = QAction("Exporter le rapport &PDF…", self)
+        export_pdf_action.triggered.connect(self.finalization_tab._export_pdf)
+        fichier_menu.addAction(export_pdf_action)
+
+        fichier_menu.addSeparator()
+
+        quit_action = QAction("&Quitter", self)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(self.close)
+        fichier_menu.addAction(quit_action)
+
+        aide_menu = menubar.addMenu("&Aide")
         about_action = QAction("À propos…", self)
         about_action.triggered.connect(self._show_about_dialog)
         aide_menu.addAction(about_action)
@@ -151,7 +180,7 @@ class MainWindow(QMainWindow):
             f"<b>Version :</b> {__version__}<br>"
             "<b>Auteur :</b> 14eBSMAT / ICDD MAQUET Xavier<br>"
             "<b>Tech :</b> PySide6, JSON, UI modulaire<br><br>"
-            "© 2025 — Tous droits réservés."
+            "© 2026 — Tous droits réservés."
         )
         text_label = QLabel(texte)
         text_label.setAlignment(Qt.AlignCenter)

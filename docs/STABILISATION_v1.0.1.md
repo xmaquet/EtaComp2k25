@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **87/87** |
+| Tests passants | 39/50 | **92/92** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -45,6 +45,12 @@ Répertoire `tests/fixtures/sessions/` :
 
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
+
+## Issue #11 (2025-06-02)
+
+- `ComparatorEditDialog` : OK désactivé si ≠ 11 cibles ; `ValidationError` → `QMessageBox` (plus de crash).
+- Helpers testables : `parse_targets_field`, `format_validation_error`.
+- Tests : `tests/test_library_targets.py`.
 
 ## Issue #14 (2025-06-02)
 
@@ -122,5 +128,4 @@ Répertoire `tests/fixtures/sessions/` :
 
 ## Prochaines étapes (roadmap)
 
-1. **#6** — abs(value) acquisition série.
-3. Corriger les warnings `datetime.utcnow()` (issue **#7** dates).
+Roadmap v1.0.1 **complète** (14/14 issues). Tag release et fermeture du milestone GitHub recommandés.
