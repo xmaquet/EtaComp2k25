@@ -69,7 +69,7 @@ class TestToleranceRuleEngine:
         assert rule.course_min == 0.0
         assert rule.course_max == 10.0
         
-        # Test graduation exacte à la limite
+        # Limite semi-ouverte : course=10.0 → première règle [0,10] uniquement
         rule = self.engine.match("normale", 0.01, 10.0)
         assert rule is not None
         assert rule.course_max == 10.0
@@ -133,8 +133,7 @@ class TestToleranceRuleEngine:
         assert rule is None
     
     def test_overlap_detection(self):
-        """Test détection de chevauchement."""
-        # Créer des règles qui se chevauchent
+        """Test détection de chevauchement à la validation."""
         overlapping_engine = ToleranceRuleEngine()
         overlapping_engine.rules["normale"] = [
             ToleranceRule(
@@ -144,12 +143,11 @@ class TestToleranceRuleEngine:
             ToleranceRule(
                 graduation=0.01, course_min=10.0, course_max=20.0,
                 Emt=0.015, Eml=0.012, Ef=0.003, Eh=0.012
-            )
+            ),
         ]
-        
         errors = overlapping_engine.validate()
         assert len(errors) > 0
-        assert any("chevauchement" in error for error in errors)
+        assert any("chevauchement" in e for e in errors)
     
     def test_duplicate_graduation_faible(self):
         """Test détection de graduation dupliquée pour faible/limitée."""
@@ -170,7 +168,7 @@ class TestToleranceRuleEngine:
             graduation=0.01,
             course=5.0,
             range_type=RangeType.NORMALE,
-            targets=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+            targets=[0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
         )
         
         errors = {"Emt": 0.010, "Eml": 0.008, "Ef": 0.002, "Eh": 0.008}
@@ -188,7 +186,7 @@ class TestToleranceRuleEngine:
             graduation=0.01,
             course=5.0,
             range_type=RangeType.NORMALE,
-            targets=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+            targets=[0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
         )
         
         errors = {"Emt": 0.020, "Eml": 0.015, "Ef": 0.005, "Eh": 0.015}
@@ -207,7 +205,7 @@ class TestToleranceRuleEngine:
             graduation=0.005,  # Graduation non couverte
             course=5.0,
             range_type=RangeType.NORMALE,
-            targets=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+            targets=[0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0],
         )
         
         errors = {"Emt": 0.010, "Eml": 0.008, "Ef": 0.002, "Eh": 0.008}

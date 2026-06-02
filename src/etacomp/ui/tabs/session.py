@@ -11,6 +11,7 @@ from PySide6.QtCore import QEvent, Signal
 
 from ...io.storage import list_comparators, list_detenteurs, add_detenteur, upsert_comparator, list_bancs_etalon_for_session
 from ...state.session_store import session_store
+from ...core.campaign_cycles import MAX_CAMPAIGN_CYCLES, clamp_series_count
 from ...io.serialio import list_serial_ports
 from ...io.serial_manager import serial_manager
 
@@ -47,7 +48,12 @@ class SessionTab(QWidget):
         self.holder_combo = QComboBox(); self.holder_combo.setToolTip("Détenteur (code ES + libellé).")
         self.btn_add_holder = QPushButton("+"); self.btn_add_holder.setToolTip("Ajouter un détenteur"); self.btn_add_holder.setMaximumWidth(32)
         self.banc_combo = QComboBox(); self.banc_combo.setToolTip("Banc étalon (si différent du défaut — Paramètres > Bancs étalon).")
-        self.series = QSpinBox(); self.series.setRange(1, 999); self.series.setToolTip("Nombre d’itérations (montée+descente).")
+        self.series = QSpinBox()
+        self.series.setRange(1, MAX_CAMPAIGN_CYCLES)
+        self.series.setToolTip(
+            f"Cycles montée/descente (max. {MAX_CAMPAIGN_CYCLES}) : "
+            "1 cycle = S1+S2, 2 cycles = S1–S4. Au-delà : v1.1."
+        )
         self.measures = QSpinBox(); self.measures.setRange(1, 1000); self.measures.setToolTip("Nombre de mesures prévues / série.")
         self.obs = QTextEdit(); self.obs.setToolTip("Observations/conditions (texte libre multi‑lignes). Saisie validée à la perte de focus ou Ctrl+Entrée.")
 
@@ -61,7 +67,7 @@ class SessionTab(QWidget):
         holder_row = QHBoxLayout(); holder_row.addWidget(self.holder_combo); holder_row.addWidget(self.btn_add_holder)
         form.addRow("Détenteur", QW()); form.itemAt(form.rowCount() - 1, QF.FieldRole).widget().setLayout(holder_row)
         form.addRow("Banc étalon", self.banc_combo)
-        form.addRow("Itérations (séries)", self.series)
+        form.addRow(f"Cycles montée/descente (max. {MAX_CAMPAIGN_CYCLES})", self.series)
         form.addRow("Mesures / série (prévu)", self.measures)
         form.addRow("Observations", self.obs)
 
@@ -255,7 +261,8 @@ class SessionTab(QWidget):
             self.banc_combo.setCurrentIndex(idx if idx >= 0 else 0)
         else:
             self.banc_combo.setCurrentIndex(0)
-        self.series.setValue(max(1, s.series_count or 1))
+        cycles, _ = clamp_series_count(s.series_count)
+        self.series.setValue(cycles)
         self.measures.setValue(max(1, s.measures_per_series or 1))
         self.obs.setPlainText(s.observations or "")
 
@@ -336,7 +343,14 @@ class SessionTab(QWidget):
             try:
                 from pathlib import Path as _P
                 session_store.load_from_file(_P(path))
-                # Tenter de reconnecter le comparateur ; si manquant proposer de le recréer
+                if session_store.consume_cycles_clamp_warning():
+                    QMessageBox.warning(
+                        self,
+                        "Cycles limités",
+                        f"Cette session prévoyait plus de {MAX_CAMPAIGN_CYCLES} cycle(s). "
+                        f"EtaComp v1.0.1 n'en utilise que {MAX_CAMPAIGN_CYCLES} (séries S1–S4). "
+                        "Les mesures des cycles supplémentaires ne sont pas prises en compte.",
+                    )
                 self._on_session_loaded_try_rebind_comparator()
                 self.reload_comparators()
                 self.reload_detenteurs()

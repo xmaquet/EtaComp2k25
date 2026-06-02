@@ -15,7 +15,7 @@ class Preferences(BaseModel):
     theme: Literal["light", "dark"] = DEFAULT_THEME
 
     # Session par défaut
-    default_series_count: int = 0
+    default_series_count: int = 2
     default_measures_per_series: int = 0
 
     # Sauvegarde auto

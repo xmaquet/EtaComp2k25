@@ -1,7 +1,12 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
+
+
+def _default_session_date() -> datetime:
+    """Date/heure locale à la création de la session (pas à l'import du module)."""
+    return datetime.now()
 
 
 class MeasureSeries(BaseModel):
@@ -20,10 +25,11 @@ class FidelitySeries(BaseModel):
 class Session(BaseModel):
     # Métadonnées
     operator: str
-    date: datetime = datetime.now()
+    date: datetime = Field(default_factory=_default_session_date)
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
     comparator_ref: Optional[str] = None
+    comparator_snapshot: Optional[Dict] = None  # profil figé (audit) — issue #13
     holder_ref: Optional[str] = None  # code ES du détenteur
     banc_ref: Optional[str] = None  # référence banc étalon (hors défaut)
 
@@ -48,6 +54,8 @@ class Session(BaseModel):
 from dataclasses import dataclass, asdict
 from enum import Enum
 from uuid import uuid4
+
+from ..core.datetime_utils import utc_now_iso
 
 
 class Direction(str, Enum):
@@ -137,7 +145,7 @@ class SessionV2:
         return SessionV2(
             schema_version=int(data.get("schema_version", 1)),
             session_id=str(data.get("session_id") or str(uuid4())),
-            created_at_iso=str(data.get("created_at_iso") or datetime.utcnow().isoformat()),
+            created_at_iso=str(data.get("created_at_iso") or utc_now_iso()),
             operator=str(data.get("operator") or ""),
             temperature_c=data.get("temperature_c"),
             humidity_rh=data.get("humidity_rh"),

@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
 )
 
 from ...models.session import MeasureSeries
+from ...core.campaign_cycles import MAX_CAMPAIGN_CYCLES, clamp_series_count
+from ...core.critical_point import find_critical_point
 from ...state.session_store import session_store
 from ...io.serial_manager import serial_manager
 from ...io.storage import list_comparators
@@ -169,7 +171,7 @@ class MeasuresTab(QWidget):
             self.targets = [0.0] + sorted(others)
 
         # Lignes : montantes (N), moyenne montantes, descendantes (N), moyenne descendantes, indices
-        self.cycles = max(1, s.series_count or 1)
+        self.cycles, _ = clamp_series_count(s.series_count)
         rows = self.cycles * 2 + 3
         cols = len(self.targets)
 
@@ -493,11 +495,11 @@ class MeasuresTab(QWidget):
             it.setForeground(QBrush())
 
     def _write_current_cell(self, value: float) -> bool:
-        # Prendre la valeur absolue (certains bancs renvoient des valeurs négatives selon le sens)
+        """Enregistre la valeur telle que lue (signe conservé pour erreur = mesuré − cible)."""
         try:
-            value = abs(float(value))
+            value = float(value)
         except Exception:
-            pass
+            return False
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
         col = self.current_col
         it = self.table.item(row, col)
@@ -520,11 +522,11 @@ class MeasuresTab(QWidget):
         return False
 
     def _write_specific_cell(self, row: int, col: int, value: float) -> bool:
-        """Écrit/écrase une valeur à la cellule spécifiée, met à jour le store et recalcule les moyennes."""
+        """Écrit/écrase une valeur à la cellule spécifiée (signe conservé)."""
         try:
-            value = abs(float(value))
+            value = float(value)
         except Exception:
-            pass
+            return False
         # Interdire écriture sur lignes moyennes/index
         if row in (self.row_avg_up_index, self.row_avg_down_index, self.row_index_line):
             return False
@@ -603,26 +605,7 @@ class MeasuresTab(QWidget):
             it_dn = self._ensure_item(self.row_avg_down_index, c)
             f_dn = it_dn.font(); f_dn.setBold(True); it_dn.setFont(f_dn)
             it_dn.setForeground(QBrush())  # reset couleur
-        # Surligner la plus grande valeur d'écart (absolu) entre ↑ et ↓
-        best = None  # tuple (abs_val, dir, col, other_abs)
-        for c in range(self.table.columnCount()):
-            up = self._mean_up_um[c]
-            dn = self._mean_down_um[c]
-            if up is not None:
-                other = abs(dn) if dn is not None else 0.0
-                t = (abs(up), "up", c, other)
-                if (best is None) or (t[0] > best[0] or (t[0] == best[0] and t[3] > best[3])):
-                    best = t
-            if dn is not None:
-                other = abs(up) if up is not None else 0.0
-                t = (abs(dn), "down", c, other)
-                if (best is None) or (t[0] > best[0] or (t[0] == best[0] and t[3] > best[3])):
-                    best = t
-        if best:
-            _, d, col, _ = best
-            r = self.row_avg_up_index if d == "up" else self.row_avg_down_index
-            it = self._ensure_item(r, col)
-            it.setForeground(QBrush(QColor(220, 53, 69)))
+        self._highlight_max_mean_error()
 
 
     class _OverrideCellDelegate(QStyledItemDelegate):
@@ -758,26 +741,30 @@ class MeasuresTab(QWidget):
 
     def _highlight_max_mean_error(self):
         self._clear_mean_highlights()
-        # Construire la liste des candidats (valeur absolue en µm)
-        candidates: List[Tuple[float, str, int, float]] = []  # (abs_val, dir, col, other_abs)
-        for c in range(self.table.columnCount()):
-            up = self._mean_up_um[c]
-            dn = self._mean_down_um[c]
-            if up is not None:
-                other = abs(dn) if dn is not None else 0.0
-                candidates.append((abs(up), "up", c, other))
-            if dn is not None:
-                other = abs(up) if up is not None else 0.0
-                candidates.append((abs(dn), "down", c, other))
-        if not candidates:
+        targets = [
+            self.targets[c] if c < len(self.targets) else 0.0
+            for c in range(self.table.columnCount())
+        ]
+        up_errors: List[Tuple[float, float]] = []
+        down_errors: List[Tuple[float, float]] = []
+        for c, t in enumerate(targets):
+            if self._mean_up_um[c] is not None:
+                up_errors.append((t, self._mean_up_um[c] / 1000.0))
+            if self._mean_down_um[c] is not None:
+                down_errors.append((t, self._mean_down_um[c] / 1000.0))
+        cp = find_critical_point(targets, up_errors, down_errors)
+        if not cp:
             return
-        # Chercher le max; en cas d'égalité, privilégier celle dont l'autre sens a l'écart le plus grand
-        candidates.sort(key=lambda t: (t[0], t[3]), reverse=True)
-        _, best_dir, best_col, _ = candidates[0]
-        r = self.row_avg_up_index if best_dir == "up" else self.row_avg_down_index
-        it = self._ensure_item(r, best_col)
-        f = it.font(); f.setBold(True); it.setFont(f)
-        it.setForeground(QBrush(QColor(220, 53, 69)))  # rouge
+        try:
+            col = targets.index(cp.target_mm)
+        except ValueError:
+            col = min(range(len(targets)), key=lambda i: abs(targets[i] - cp.target_mm))
+        r = self.row_avg_up_index if cp.direction == "up" else self.row_avg_down_index
+        it = self._ensure_item(r, col)
+        f = it.font()
+        f.setBold(True)
+        it.setFont(f)
+        it.setForeground(QBrush(QColor(220, 53, 69)))
 
     # ------------- Avancement & Highlight -------------
     def _advance_after_write(self) -> bool:

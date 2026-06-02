@@ -1,0 +1,22 @@
+﻿{
+  "repo": "xmaquet/EtaComp2k25",
+  "milestone": "v1.0.1-stabilisation",
+  "milestone_url": "https://github.com/xmaquet/EtaComp2k25/milestone/1",
+  "created_at": "2026-06-02",
+  "issues": [
+    {"doc_id": "005", "number": 1, "url": "https://github.com/xmaquet/EtaComp2k25/issues/1"},
+    {"doc_id": "001", "number": 2, "url": "https://github.com/xmaquet/EtaComp2k25/issues/2"},
+    {"doc_id": "002", "number": 3, "url": "https://github.com/xmaquet/EtaComp2k25/issues/3"},
+    {"doc_id": "003", "number": 4, "url": "https://github.com/xmaquet/EtaComp2k25/issues/4"},
+    {"doc_id": "004", "number": 5, "url": "https://github.com/xmaquet/EtaComp2k25/issues/5"},
+    {"doc_id": "013", "number": 6, "url": "https://github.com/xmaquet/EtaComp2k25/issues/6"},
+    {"doc_id": "011", "number": 7, "url": "https://github.com/xmaquet/EtaComp2k25/issues/7"},
+    {"doc_id": "008", "number": 8, "url": "https://github.com/xmaquet/EtaComp2k25/issues/8"},
+    {"doc_id": "009", "number": 9, "url": "https://github.com/xmaquet/EtaComp2k25/issues/9"},
+    {"doc_id": "010", "number": 10, "url": "https://github.com/xmaquet/EtaComp2k25/issues/10"},
+    {"doc_id": "014", "number": 11, "url": "https://github.com/xmaquet/EtaComp2k25/issues/11"},
+    {"doc_id": "006", "number": 12, "url": "https://github.com/xmaquet/EtaComp2k25/issues/12"},
+    {"doc_id": "007", "number": 13, "url": "https://github.com/xmaquet/EtaComp2k25/issues/13"},
+    {"doc_id": "012", "number": 14, "url": "https://github.com/xmaquet/EtaComp2k25/issues/14"}
+  ]
+}

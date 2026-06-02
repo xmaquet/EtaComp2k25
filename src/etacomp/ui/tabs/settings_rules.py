@@ -61,6 +61,13 @@ class RuleEditDialog(QDialog):
         self.eml.setDecimals(3)
         self.eml.setSingleStep(0.001)
         self.eml.setToolTip("Erreur de mesure locale (mm)")
+
+        self.eml_na = QCheckBox("Eml non applicable (faible / limitée)")
+        self.eml_na.setToolTip(
+            "Si coché, la limite Eml est absente du JSON : le verdict n'évalue pas l'erreur locale."
+        )
+        self._eml_row_label = QLabel("Eml limite (mm)")
+        self._eml_applicable = family in ("normale", "grande")
         
         self.ef = QDoubleSpinBox()
         self.ef.setRange(0.0, 1.0)
@@ -86,7 +93,14 @@ class RuleEditDialog(QDialog):
             self.course_max.setVisible(False)
         
         form.addRow("Emt limite (mm)", self.emt)
-        form.addRow("Eml limite (mm)", self.eml)
+        if self._eml_applicable:
+            form.addRow(self._eml_row_label, self.eml)
+        else:
+            form.addRow(self.eml_na)
+            form.addRow(self._eml_row_label, self.eml)
+            self.eml_na.toggled.connect(self._on_eml_na_toggled)
+            self.eml_na.setChecked(True)
+            self._on_eml_na_toggled(True)
         form.addRow("Ef limite (mm)", self.ef)
         form.addRow("Eh limite (mm)", self.eh)
         
@@ -106,26 +120,37 @@ class RuleEditDialog(QDialog):
             if initial.course_max is not None:
                 self.course_max.setValue(initial.course_max)
             self.emt.setValue(initial.Emt)
-            self.eml.setValue(initial.Eml)
+            if initial.Eml is not None:
+                if not self._eml_applicable:
+                    self.eml_na.setChecked(False)
+                    self._on_eml_na_toggled(False)
+                self.eml.setValue(initial.Eml)
+            elif not self._eml_applicable:
+                self.eml_na.setChecked(True)
+                self._on_eml_na_toggled(True)
             self.ef.setValue(initial.Ef)
             self.eh.setValue(initial.Eh)
-    
+
+    def _on_eml_na_toggled(self, checked: bool) -> None:
+        self.eml.setEnabled(not checked)
+        self._eml_row_label.setEnabled(not checked)
+
     def result_rule(self) -> Optional[ToleranceRule]:
         """Retourne la règle construite ou None si invalide."""
         try:
             kwargs = {
                 "graduation": self.graduation.value(),
                 "Emt": self.emt.value(),
-                "Eml": self.eml.value(),
                 "Ef": self.ef.value(),
-                "Eh": self.eh.value()
+                "Eh": self.eh.value(),
             }
-            
-            # Ajouter course_min/max seulement pour normale/grande
+            if self._eml_applicable or not self.eml_na.isChecked():
+                kwargs["Eml"] = self.eml.value()
+
             if self.family in ("normale", "grande"):
                 kwargs["course_min"] = self.course_min.value()
                 kwargs["course_max"] = self.course_max.value()
-            
+
             return ToleranceRule(**kwargs)
         except ValueError as e:
             QMessageBox.warning(self, "Erreur", f"Règle invalide : {e}")
@@ -184,7 +209,7 @@ class SettingsRulesTab(QWidget):
             if family in ("normale", "grande"):
                 headers = ["Graduation (mm)", "Course min (mm)", "Course max (mm)", "Emt (µm)", "Eml (µm)", "Ef (µm)", "Eh (µm)", "Interprétation"]
             else:
-                headers = ["Graduation (mm)", "Emt (µm)", "Eml (µm)", "Ef (µm)", "Eh (µm)"]
+                headers = ["Graduation (mm)", "Emt (µm)", "Ef (µm)", "Eh (µm)"]
             
             # Tableau des règles
             table = QTableWidget(0, len(headers))
@@ -283,10 +308,14 @@ class SettingsRulesTab(QWidget):
                 if family in ("normale", "grande"):
                     table.setItem(row, col, QTableWidgetItem(f"{rule.course_min:.3f}" if rule.course_min is not None else "")); col += 1
                     table.setItem(row, col, QTableWidgetItem(f"{rule.course_max:.3f}" if rule.course_max is not None else "")); col += 1
-                # Tolérances affichées en µm
                 table.setItem(row, col, QTableWidgetItem(f"{rule.Emt*1000:.3f}")); col += 1
-                eml_val = getattr(rule, "Eml", None)
-                table.setItem(row, col, QTableWidgetItem(f"{eml_val*1000:.3f}" if eml_val is not None else "")); col += 1
+                if family in ("normale", "grande"):
+                    eml_val = getattr(rule, "Eml", None)
+                    table.setItem(
+                        row, col,
+                        QTableWidgetItem(f"{eml_val*1000:.3f}" if eml_val is not None else ""),
+                    )
+                    col += 1
                 table.setItem(row, col, QTableWidgetItem(f"{rule.Ef*1000:.3f}")); col += 1
                 table.setItem(row, col, QTableWidgetItem(f"{rule.Eh*1000:.3f}"))
                 if family in ("normale", "grande"):

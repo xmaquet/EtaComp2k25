@@ -2,8 +2,8 @@ from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QDialog, QLabel,
     QVBoxLayout, QPushButton
 )
-from PySide6.QtGui import QAction, QPixmap
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QPixmap, QCloseEvent
+from PySide6.QtCore import Qt, QTimer
 
 from .tabs.session import SessionTab
 from .tabs.measures import MeasuresTab
@@ -18,6 +18,9 @@ from ..config.prefs import load_prefs
 from .themes import apply_theme
 from .help_dialog import HelpDialog
 from ..state.session_store import session_store
+from ..io.serial_manager import serial_manager
+from ..io.storage import save_autosave_session
+from ..package_resources import resource_path
 
 
 class MainWindow(QMainWindow):
@@ -88,6 +91,15 @@ class MainWindow(QMainWindow):
         # --- Menu Aide > À propos ---
         self._setup_help_menu()
 
+        # --- Autosave (Paramètres > Sauvegarde) ---
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.timeout.connect(self._run_autosave)
+        try:
+            self.settings_tab.autosaveChanged.connect(self._reload_autosave_timer)
+        except Exception:
+            pass
+        self._reload_autosave_timer()
+
     # ===== Session runtime accessors =====
     def get_rt_session(self):
         return session_store.current
@@ -126,7 +138,7 @@ class MainWindow(QMainWindow):
 
         # Logo (place le fichier ici : src/etacomp/resources/14eBSMAT_insigne.png)
         logo_label = QLabel()
-        pixmap = QPixmap("src/etacomp/resources/14eBSMAT_insigne.png")
+        pixmap = QPixmap(str(resource_path("resources", "14eBSMAT_insigne.png")))
         if not pixmap.isNull():
             logo_label.setPixmap(pixmap.scaledToWidth(120, Qt.SmoothTransformation))
             logo_label.setAlignment(Qt.AlignCenter)
@@ -157,3 +169,32 @@ class MainWindow(QMainWindow):
         dlg = HelpDialog(self)
         dlg.setAttribute(Qt.WA_DeleteOnClose, True)
         dlg.show()
+
+    def _reload_autosave_timer(self):
+        prefs = load_prefs()
+        if prefs.autosave_enabled and prefs.autosave_interval_s > 0:
+            self._autosave_timer.start(int(prefs.autosave_interval_s) * 1000)
+        else:
+            self._autosave_timer.stop()
+
+    def _run_autosave(self):
+        prefs = load_prefs()
+        if not prefs.autosave_enabled:
+            return
+        if not session_store.can_save():
+            return
+        try:
+            path = save_autosave_session(session_store.current)
+            if path:
+                self.statusBar().showMessage(f"Sauvegarde auto : {path.name}", 5000)
+        except Exception:
+            pass
+
+    def closeEvent(self, event: QCloseEvent):
+        """Issue #9 — libère le port COM et arrête TesaSerialReader / SerialReaderThread."""
+        try:
+            if serial_manager.is_open():
+                serial_manager.close()
+        except Exception:
+            pass
+        super().closeEvent(event)

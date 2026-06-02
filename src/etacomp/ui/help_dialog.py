@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QDesktopServices
 
 from ..config.prefs import load_prefs, save_prefs
+from ..package_resources import resource_path
 
 
 # Regex pour extraire les titres Markdown
@@ -85,7 +86,7 @@ class HelpDialog(QDialog):
         self.resize(1200, 800)
 
         self._prefs = load_prefs()
-        self._default_md_path = Path("src/etacomp/resources/help/aid.md")
+        self._default_md_path = resource_path("resources", "help", "aid.md")
         self._current_path: Optional[Path] = None
         self._last_search: str = getattr(getattr(self._prefs, "help", {}), "last_search", "") if hasattr(self._prefs, "help") else ""
         self._last_anchor: str = getattr(getattr(self._prefs, "help", {}), "last_anchor", "") if hasattr(self._prefs, "help") else ""

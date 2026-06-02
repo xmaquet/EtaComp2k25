@@ -12,10 +12,11 @@ Sources:
   - ToleranceRuleEngine (+ evaluate_tolerances) → Verdict (optionnel si règles absentes)
 """
 
-from typing import Optional, Tuple, List, Dict, Any
+from typing import Optional, Tuple, List
 from pathlib import Path
 
 from ..core.session_adapter import build_session_from_runtime
+from ..core.datetime_utils import utc_now_iso
 from ..core.calculation_engine import CalculationEngine, CalculatedResults
 from ..models.session import SessionV2, Series, SeriesKind, Direction, Measurement
 from ..rules.tolerance_engine import ToleranceRuleEngine
@@ -30,10 +31,6 @@ class ResultsProvider:
         self.rules_path = rules_path or get_default_rules_path()
         self._tol_engine: Optional[ToleranceRuleEngine] = None
         self._load_rules()
-        # Mémoire volatile de la dernière S5 capturée (pour croiser avec Finalisation)
-        # Format: {"comparator_ref": str|None, "target_mm": float, "direction": "up"|"down", "samples": [float], "timestamps": [str]}
-        if not hasattr(ResultsProvider, "_last_fidelity"):
-            ResultsProvider._last_fidelity: Optional[Dict[str, Any]] = None
 
     def _load_rules(self) -> None:
         try:
@@ -52,20 +49,6 @@ class ResultsProvider:
         v2 = build_session_from_runtime(rt_session)
         calc = CalculationEngine()
         results = calc.compute(v2)
-        # Si pas de série 5 intégrée mais une capture S5 récente existe pour ce profil, l'injecter virtuellement
-        if results.fidelity_std_mm is None and getattr(ResultsProvider, "_last_fidelity", None):
-            lf = ResultsProvider._last_fidelity
-            try:
-                if (rt_session.comparator_ref or None) == lf.get("comparator_ref"):
-                    v2, results, _ = self.compute_with_fidelity(
-                        rt_session,
-                        target_mm=float(lf["target_mm"]),
-                        direction=str(lf["direction"]),
-                        samples_mm=list(lf["samples"]),
-                        timestamps_iso=list(lf.get("timestamps") or []),
-                    )
-            except Exception:
-                pass
         verdict = None
         if self._tol_engine is not None:
             try:
@@ -99,7 +82,7 @@ class ResultsProvider:
                 direction=dir_enum,
                 series_index=5,
                 sample_index=i,
-                timestamp_iso=ts[i] if i < len(ts) else __import__("datetime").datetime.utcnow().isoformat(),
+                timestamp_iso=ts[i] if i < len(ts) else utc_now_iso(),
             ))
         s5 = Series(index=5, kind=SeriesKind.FIDELITY, direction=dir_enum, targets_mm=[float(target_mm)], measurements=m_list)
         v2.series.append(s5)
@@ -112,22 +95,3 @@ class ResultsProvider:
             except Exception:
                 verdict = None
         return v2, results, verdict
-
-    def remember_fidelity(
-        self,
-        *,
-        comparator_ref: Optional[str],
-        target_mm: float,
-        direction: str,
-        samples_mm: List[float],
-        timestamps_iso: Optional[List[str]] = None,
-    ) -> None:
-        """Mémorise temporairement une série 5 capturée, pour réutilisation dans Finalisation."""
-        ResultsProvider._last_fidelity = {
-            "comparator_ref": comparator_ref or None,
-            "target_mm": float(target_mm),
-            "direction": "up" if str(direction).lower().startswith("u") else "down",
-            "samples": list(samples_mm[:5]),
-            "timestamps": list((timestamps_iso or [])[:5]),
-        }
-

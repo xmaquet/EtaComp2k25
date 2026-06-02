@@ -11,7 +11,11 @@ import pytest
 import tempfile
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from src.etacomp.models.comparator import ComparatorProfile, RangeType, load_profile, save_profile
+
+PROFILE_ERRORS = (ValueError, ValidationError)
 
 
 class TestComparatorProfile:
@@ -38,7 +42,7 @@ class TestComparatorProfile:
     def test_validation_exactly_11_targets(self):
         """Test validation exactement 11 cibles."""
         # Trop peu de cibles
-        with pytest.raises(ValueError, match="exactement 11 cibles"):
+        with pytest.raises(PROFILE_ERRORS, match=r"11"):
             ComparatorProfile(
                 reference="TEST",
                 graduation=0.01,
@@ -48,7 +52,7 @@ class TestComparatorProfile:
             )
         
         # Trop de cibles
-        with pytest.raises(ValueError, match="exactement 11 cibles"):
+        with pytest.raises(PROFILE_ERRORS, match=r"11"):
             ComparatorProfile(
                 reference="TEST",
                 graduation=0.01,
@@ -81,8 +85,8 @@ class TestComparatorProfile:
     
     def test_validation_targets_in_range(self):
         """Test validation cibles dans la plage [0, course]."""
-        # Cible négative
-        with pytest.raises(ValueError, match="hors plage"):
+        # Cible négative (min(targets) ≠ 0 → erreur « première cible »)
+        with pytest.raises(PROFILE_ERRORS, match="première cible"):
             ComparatorProfile(
                 reference="TEST",
                 graduation=0.01,
@@ -115,7 +119,7 @@ class TestComparatorProfile:
     
     def test_validation_graduation_positive(self):
         """Test validation graduation > 0."""
-        with pytest.raises(ValueError, match="graduation doit être > 0"):
+        with pytest.raises(PROFILE_ERRORS, match=r"graduation|greater than 0"):
             ComparatorProfile(
                 reference="TEST",
                 graduation=0.0,  # graduation = 0
@@ -124,7 +128,7 @@ class TestComparatorProfile:
                 targets=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
             )
         
-        with pytest.raises(ValueError, match="graduation doit être > 0"):
+        with pytest.raises(PROFILE_ERRORS, match=r"graduation|greater than 0"):
             ComparatorProfile(
                 reference="TEST",
                 graduation=-0.01,  # graduation négative
@@ -135,7 +139,7 @@ class TestComparatorProfile:
     
     def test_validation_course_positive(self):
         """Test validation course > 0."""
-        with pytest.raises(ValueError, match="course doit être > 0"):
+        with pytest.raises(PROFILE_ERRORS, match=r"course|greater than 0"):
             ComparatorProfile(
                 reference="TEST",
                 graduation=0.01,
@@ -253,25 +257,15 @@ class TestProfileMigration:
             temp_path.unlink(missing_ok=True)
     
     def test_save_invalid_profile(self):
-        """Test sauvegarde d'un profil invalide."""
-        # Créer un profil invalide (moins de 11 cibles)
-        invalid_profile = ComparatorProfile(
-            reference="INVALID",
-            graduation=0.01,
-            course=10.0,
-            range_type=RangeType.NORMALE,
-            targets=[0.0, 1.0, 2.0]  # Seulement 3 cibles
-        )
-        
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            temp_path = Path(f.name)
-        
-        try:
-            # La validation devrait échouer avant la sauvegarde
-            with pytest.raises(ValueError):
-                save_profile(temp_path, invalid_profile)
-        finally:
-            temp_path.unlink(missing_ok=True)
+        """Test qu'un profil invalide est rejeté à la construction (Pydantic)."""
+        with pytest.raises(PROFILE_ERRORS, match=r"11"):
+            ComparatorProfile(
+                reference="INVALID",
+                graduation=0.01,
+                course=10.0,
+                range_type=RangeType.NORMALE,
+                targets=[0.0, 1.0, 2.0],  # Seulement 3 cibles
+            )
 
 
 class TestRangeType:

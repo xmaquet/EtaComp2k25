@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Dict, List, Optional
 import json
 
+from .interval_match import EPS, detect_course_overlaps, feq, match_course_group_strict
+
 
 class ConfigurationError(Exception):
     """Erreur de configuration des règles de tolérances."""
@@ -16,12 +18,12 @@ class OverlapError(ConfigurationError):
 
 @dataclass(frozen=True)
 class ToleranceRule:
-    """Règle de tolérance à graduation unique (mm)."""
+    """Règle de tolérance à graduation unique (mm). Eml=None : critère non applicable."""
     graduation: float
     Emt: float
-    Eml: float
     Ef: float
     Eh: float
+    Eml: float | None = None
     course_min: float | None = None
     course_max: float | None = None
 
@@ -29,7 +31,7 @@ class ToleranceRule:
 class ToleranceRuleEngine:
     """Moteur de règles basé sur une graduation unique par famille."""
 
-    EPS = 1e-6
+    EPS = EPS
     FAMILIES = ("normale", "grande", "faible", "limitee")
 
     def __init__(self, rules: Dict[str, List[ToleranceRule]] | None = None):
@@ -57,12 +59,13 @@ class ToleranceRuleEngine:
                 raise ConfigurationError(f"Famille inconnue: {fam_key}")
             lst: List[ToleranceRule] = []
             for r in items:
+                eml_raw = r.get("Eml")
                 lst.append(ToleranceRule(
                     graduation=float(r["graduation"]),
                     Emt=float(r["Emt"]),
-                    Eml=float(r["Eml"]) if "Eml" in r and r["Eml"] is not None else None,
                     Ef=float(r["Ef"]),
                     Eh=float(r["Eh"]),
+                    Eml=float(eml_raw) if eml_raw is not None else None,
                     course_min=float(r["course_min"]) if "course_min" in r else None,
                     course_max=float(r["course_max"]) if "course_max" in r else None,
                 ))
@@ -70,10 +73,6 @@ class ToleranceRuleEngine:
         eng = cls(rules)
         eng.validate()
         return eng
-
-    @staticmethod
-    def _feq(a: float, b: float, eps: float) -> bool:
-        return abs(a - b) <= eps
 
     def validate(self) -> None:
         """Valide la configuration. Lève ConfigurationError/OverlapError si invalide."""
@@ -106,48 +105,26 @@ class ToleranceRuleEngine:
                 for r in items:
                     grads.setdefault(r.graduation, []).append(r)
                 for g, lst in grads.items():
-                    lst_sorted = sorted(lst, key=lambda rr: (rr.course_max, rr.course_min))
-                    # Vérifier qu'il n'y a pas de recouvrement: next.course_min < prev.course_max interdit
-                    for i in range(len(lst_sorted) - 1):
-                        prev = lst_sorted[i]
-                        nxt = lst_sorted[i + 1]
-                        if nxt.course_min is None or prev.course_max is None:
-                            continue
-                        if nxt.course_min < prev.course_max - self.EPS:
-                            raise OverlapError(f"{fam}: chevauchement entre règles (graduation {g:.6f})")
+                    if detect_course_overlaps(lst, self.EPS):
+                        raise OverlapError(f"{fam}: chevauchement entre règles (graduation {g:.6f})")
             else:
                 # faible/limitée: graduation unique non dupliquée
                 seen: List[float] = []
                 for i, r in enumerate(items):
-                    if any(self._feq(r.graduation, g, self.EPS) for g in seen):
+                    if any(feq(r.graduation, g, self.EPS) for g in seen):
                         raise OverlapError(f"{fam}: graduation {r.graduation:.6f} mm dupliquée")
                     seen.append(r.graduation)
-
-    def _match_course_group_strict(self, rules_same_grad: List[ToleranceRule], course: float) -> List[ToleranceRule]:
-        """Intervalles stricts par groupe (même graduation). Première ligne inclusive; suivantes: min exclusive, max inclusive."""
-        rules_sorted = sorted(rules_same_grad, key=lambda r: (r.course_max, r.course_min))
-        matches: List[ToleranceRule] = []
-        for i, r in enumerate(rules_sorted):
-            cmin = r.course_min if r.course_min is not None else float("-inf")
-            cmax = r.course_max if r.course_max is not None else float("inf")
-            if i == 0:
-                if cmin - self.EPS <= course <= cmax + self.EPS:
-                    matches.append(r)
-            else:
-                if course > cmin + self.EPS and course <= cmax + self.EPS:
-                    matches.append(r)
-        return matches
 
     def match(self, family: str, graduation: float, course: float | None) -> Optional[ToleranceRule]:
         """Retourne la règle applicable ou None. Lève OverlapError si plusieurs match."""
         if family not in self.rules:
             return None
         fam_rules = self.rules[family]
-        same_grad = [r for r in fam_rules if self._feq(r.graduation, graduation, self.EPS)]
+        same_grad = [r for r in fam_rules if feq(r.graduation, graduation, self.EPS)]
         if family in ("normale", "grande"):
             if course is None:
                 return None
-            matches = self._match_course_group_strict(same_grad, course)
+            matches = match_course_group_strict(same_grad, course, self.EPS)
         else:
             matches = list(same_grad)
         if len(matches) > 1:

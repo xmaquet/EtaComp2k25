@@ -17,7 +17,15 @@ from reportlab.pdfgen import canvas
 if TYPE_CHECKING:
     from ..config.export_config import ExportConfig
     from ..core.calculation_engine import CalculatedResults
-    from ..rules.verdict import Verdict
+    from ..rules.verdict import Verdict, VerdictStatus
+
+CRITERION_PDF_LABELS = {
+    "Emt": "Erreur totale (Emt)",
+    "Eml": "Erreur locale (Eml)",
+    "Eh": "Erreur d'hystérésis (Eh)",
+    "Ef": "Erreur de fidélité (Ef)",
+}
+METROLOGY_KEY_ORDER = ("Emt", "Eml", "Eh", "Ef")
 
 # Marges
 MARGIN_LR = 15 * mm
@@ -140,6 +148,109 @@ def draw_paragraph(
     return len(lines) * line_h
 
 
+def _fmt_measure_mm(val: Optional[float]) -> str:
+    if val is None:
+        return "Indisponible"
+    return f"{val:.6f}"
+
+
+def _metrology_table_rows(
+    results: "CalculatedResults",
+    verdict: Optional["Verdict"],
+) -> List[tuple[str, str, str, str, str]]:
+    """Lignes (critère, mesuré, limite, dépassement, statut) pour le PDF."""
+    rows: List[tuple[str, str, str, str, str]] = []
+    if verdict and verdict.limits:
+        keys = [k for k in METROLOGY_KEY_ORDER if k in verdict.limits]
+    else:
+        keys = list(METROLOGY_KEY_ORDER)
+
+    fallback_measured = {
+        "Emt": results.total_error_mm,
+        "Eml": results.local_error_mm,
+        "Eh": results.hysteresis_max_mm,
+        "Ef": results.fidelity_std_mm,
+    }
+
+    for key in keys:
+        label = CRITERION_PDF_LABELS.get(key, key)
+        if verdict and verdict.limits:
+            limit = verdict.limits.get(key)
+            measured = verdict.measured.get(key)
+            if measured is None and key in fallback_measured:
+                measured = fallback_measured[key]
+            exceed = verdict.exceed.get(key)
+            if exceed is not None and exceed > 1e-12:
+                status = "Non conforme"
+                exceed_s = f"{exceed:.6f}"
+            elif measured is None and limit is not None:
+                status = "Indisponible"
+                exceed_s = "—"
+            elif limit is None:
+                status = "Indéterminé"
+                exceed_s = "—"
+            else:
+                status = "Conforme"
+                exceed_s = "—"
+            limit_s = f"{limit:.6f}" if limit is not None else "—"
+        else:
+            measured = fallback_measured.get(key)
+            limit = None
+            exceed_s = "—"
+            status = "Indéterminé" if measured is None else "—"
+            limit_s = "—"
+
+        rows.append((
+            label,
+            _fmt_measure_mm(measured),
+            limit_s,
+            exceed_s,
+            status,
+        ))
+    return rows
+
+
+def draw_grid_table(
+    canvas_obj,
+    x: float,
+    y_top: float,
+    w: float,
+    headers: tuple[str, ...],
+    rows: List[tuple[str, ...]],
+    col_fracs: tuple[float, ...],
+) -> float:
+    """Tableau à colonnes. y_top = ligne du haut. Retourne la hauteur totale."""
+    line_h = 4.5 * mm
+    cols_w = [w * f for f in col_fracs]
+    n_rows = 1 + len(rows)
+    total_h = n_rows * line_h
+
+    def _draw_row(row_y: float, cells: tuple[str, ...], bold: bool = False):
+        font = "Helvetica-Bold" if bold else "Helvetica"
+        canvas_obj.setFont(font, 7)
+        x_cur = x
+        for i, cell in enumerate(cells):
+            text = _none_str(cell)[:48]
+            cw = cols_w[i] if i < len(cols_w) else cols_w[-1]
+            while text and canvas_obj.stringWidth(text, font, 7) > cw - 1 * mm:
+                text = text[:-1]
+            canvas_obj.drawString(x_cur + 1 * mm, row_y, text or "—")
+            x_cur += cw
+
+    y = y_top
+    _draw_row(y, headers, bold=True)
+    for i, row in enumerate(rows):
+        _draw_row(y - (i + 1) * line_h, row)
+
+    # Grille horizontale
+    canvas_obj.setStrokeColor(colors.grey)
+    for r in range(n_rows + 1):
+        yy = y_top + line_h - r * line_h
+        canvas_obj.line(x, yy, x + w, yy)
+    canvas_obj.setStrokeColor(colors.black)
+    return total_h
+
+
 def add_plot_image(
     canvas_obj,
     x: float,
@@ -252,7 +363,8 @@ def export_pdf(
     if output_path is None:
         exports_dir = get_data_dir() / "exports"
         exports_dir.mkdir(parents=True, exist_ok=True)
-        comp_ref = _none_str(rt_session.comparator_ref).replace(" ", "_") or "sans_ref"
+        from .safe_filename import sanitize_filename
+        comp_ref = sanitize_filename(_none_str(rt_session.comparator_ref) or "sans_ref")
         base_name = f"{comp_ref}_{doc_ref}.pdf"
         output_path = exports_dir / base_name
         suffix = 1
@@ -427,14 +539,28 @@ def export_pdf(
     c.drawString(MARGIN_LR + block_c_pad, y_plot - plot_h - 4 * mm, "Montée (•) / Descente (■) — Erreur en µm")
     y -= block_gap
 
-    # ---- D. BLOC PLACEHOLDER ----
-    block_d_h = 18 * mm
-    draw_block_title(c, MARGIN_LR, y, CONTENT_W, "Bloc complémentaire (à définir)")
-    y -= 5 * mm
-    c.setFont("Helvetica", 8)
-    c.drawString(MARGIN_LR + pad, y, "TODO")
-    y -= 10 * mm
+    # ---- D. RÉSULTATS MÉTROLOGIQUES ----
+    metro_rows = _metrology_table_rows(results, verdict)
+    metro_headers = ("Critère", "Mesuré (mm)", "Limite (mm)", "Dépassement (mm)", "Statut")
+    metro_col_fracs = (0.34, 0.17, 0.17, 0.17, 0.15)
+    metro_line_h = 4.5 * mm
+    metro_pad = 4 * mm
+    metro_table_h = (1 + len(metro_rows)) * metro_line_h
+    block_d_h = metro_pad + 5 * mm + metro_table_h + metro_pad
+    y -= block_d_h
     c.rect(MARGIN_LR, y, CONTENT_W, block_d_h, fill=0, stroke=1)
+    y_title_d = y + block_d_h - metro_pad
+    draw_block_title(c, MARGIN_LR + metro_pad, y_title_d, CONTENT_W - 2 * metro_pad, "Résultats métrologiques")
+    y_table_top = y_title_d - 5 * mm
+    draw_grid_table(
+        c,
+        MARGIN_LR + metro_pad,
+        y_table_top,
+        CONTENT_W - 2 * metro_pad,
+        metro_headers,
+        metro_rows,
+        metro_col_fracs,
+    )
     y -= block_gap
 
     # ---- E. BLOC OBSERVATIONS ----

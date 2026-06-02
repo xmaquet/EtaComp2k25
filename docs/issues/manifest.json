@@ -1,0 +1,106 @@
+{
+  "milestone": "v1.0.1-stabilisation",
+  "milestone_description": "Stabilisation métrologique EtaComp2K25 — verdict, PDF, reproductibilité, CI verte.",
+  "repo": "xmaquet/EtaComp2k25",
+  "labels": ["stabilisation", "P0", "P1", "P2", "metrologie", "verdict", "pdf", "tests", "bug", "feat", "build"],
+  "issues": [
+    {
+      "id": "005",
+      "title": "[TEST][P0] Réparer la suite de tests et mettre la CI au vert",
+      "labels": ["stabilisation", "P0", "tests"],
+      "body_file": "ISSUE-005-tests-ci.md",
+      "lot": 0
+    },
+    {
+      "id": "001",
+      "title": "[BUG][P0] Unifier le moteur de tolérances UI/runtime",
+      "labels": ["stabilisation", "P0", "metrologie", "verdict", "bug"],
+      "body_file": "ISSUE-001-tolerance-engine.md",
+      "lot": 1
+    },
+    {
+      "id": "002",
+      "title": "[BUG][P0] Corriger Eml optionnelle (faible / limitée)",
+      "labels": ["stabilisation", "P0", "metrologie", "verdict", "bug"],
+      "body_file": "ISSUE-002-eml-optional.md",
+      "lot": 1
+    },
+    {
+      "id": "003",
+      "title": "[BUG][P0] Centraliser la détermination du point critique",
+      "labels": ["stabilisation", "P0", "metrologie", "verdict", "bug"],
+      "body_file": "ISSUE-003-critical-point.md",
+      "lot": 1
+    },
+    {
+      "id": "004",
+      "title": "[BUG][P0] Traiter explicitement les cycles > 2 (limite à 2)",
+      "labels": ["stabilisation", "P0", "metrologie", "bug"],
+      "body_file": "ISSUE-004-cycles-limit.md",
+      "lot": 1
+    },
+    {
+      "id": "013",
+      "title": "[BUG][P0] Supprimer l'absolutisation non contrôlée des lectures (abs(value))",
+      "labels": ["stabilisation", "P0", "metrologie", "bug"],
+      "body_file": "ISSUE-013-abs-value.md",
+      "lot": 1
+    },
+    {
+      "id": "011",
+      "title": "[BUG][P1] Corriger dates par défaut et défaut cycles",
+      "labels": ["stabilisation", "P1", "bug"],
+      "body_file": "ISSUE-011-dates-defaults.md",
+      "lot": 1
+    },
+    {
+      "id": "006",
+      "title": "[FEAT][P0] Constat PDF : retirer TODO et tableau métrologique complet",
+      "labels": ["stabilisation", "P0", "pdf", "feat"],
+      "body_file": "ISSUE-006-pdf-report.md",
+      "lot": 3
+    },
+    {
+      "id": "007",
+      "title": "[FEAT][P1] Persister un snapshot complet avec chaque session",
+      "labels": ["stabilisation", "P1", "metrologie", "feat"],
+      "body_file": "ISSUE-007-session-snapshot.md",
+      "lot": 2
+    },
+    {
+      "id": "008",
+      "title": "[BUG][P1] Supprimer l'état global _last_fidelity",
+      "labels": ["stabilisation", "P1", "metrologie", "bug"],
+      "body_file": "ISSUE-008-fidelity-state.md",
+      "lot": 2
+    },
+    {
+      "id": "009",
+      "title": "[BUG][P1] Fermer proprement port série et threads à la fermeture",
+      "labels": ["stabilisation", "P1", "bug"],
+      "body_file": "ISSUE-009-serial-shutdown.md",
+      "lot": 4
+    },
+    {
+      "id": "010",
+      "title": "[BUG][P1] Sécuriser persistance JSON (atomique, noms, logs)",
+      "labels": ["stabilisation", "P1", "bug"],
+      "body_file": "ISSUE-010-storage-json.md",
+      "lot": 4
+    },
+    {
+      "id": "014",
+      "title": "[BUG][P2] Library : message clair si targets ≠ 11",
+      "labels": ["stabilisation", "P2", "bug"],
+      "body_file": "ISSUE-014-library-targets.md",
+      "lot": 4
+    },
+    {
+      "id": "012",
+      "title": "[BUILD][P2] Packaging, ressources et code mort",
+      "labels": ["stabilisation", "P2", "build"],
+      "body_file": "ISSUE-012-packaging.md",
+      "lot": 5
+    }
+  ]
+}

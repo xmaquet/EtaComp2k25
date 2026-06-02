@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Literal, Any
 
 from ..models.comparator import RangeType
+from .interval_match import detect_course_overlaps, match_course_group_strict
 
 
 # Tolérance pour les comparaisons de graduation
@@ -195,9 +196,17 @@ class ToleranceRuleEngine:
                 except ValueError as e:
                     errors.append(f"{get_family_display_name(family)}[{i+1}]: {e}")
             
-            # Ne plus signaler les chevauchements : l'intervalle strict est géré par le moteur au matching
-            # (On conserve la validation individuelle uniquement.)
-            
+            if family in ("normale", "grande"):
+                grads: Dict[float, List[ToleranceRule]] = {}
+                for rule in rules_list:
+                    grads.setdefault(rule.graduation, []).append(rule)
+                for g, lst in grads.items():
+                    if detect_course_overlaps(lst, EPS):
+                        errors.append(
+                            f"{get_family_display_name(family)}: chevauchement entre règles "
+                            f"(graduation {g:.6f} mm)"
+                        )
+
             # Vérifications spécifiques par famille
             if family in ("normale", "grande"):
                 # Vérifier que toutes les règles ont course_min/max
@@ -222,22 +231,24 @@ class ToleranceRuleEngine:
         return errors
 
     def match(self, family: str, graduation: float, course: Optional[float] = None) -> Optional[ToleranceRule]:
-        """Trouve la règle applicable pour family/graduation/course."""
+        """Trouve la règle applicable (intervalles semi-ouverts, aligné sur tolerance_engine)."""
         if family not in self.rules:
             return None
-        
-        candidates = []
-        for rule in self.rules[family]:
-            if rule.matches(graduation, course):
-                candidates.append(rule)
-        
-        if len(candidates) > 1:
+
+        same_grad = [r for r in self.rules[family] if grad_eq(r.graduation, graduation)]
+        if family in ("normale", "grande"):
+            if course is None:
+                return None
+            matches = match_course_group_strict(same_grad, course, EPS)
+        else:
+            matches = list(same_grad)
+
+        if len(matches) > 1:
             raise ConfigurationOverlapError(
                 f"Plusieurs règles matchent pour {family}, graduation {graduation:.6f} mm"
                 f"{f', course {course:.6f} mm' if course is not None else ''}"
             )
-        
-        return candidates[0] if candidates else None
+        return matches[0] if matches else None
 
     def evaluate(self, profile, errors: Dict[str, float]) -> Verdict:
         """Évalue les erreurs contre les règles applicables."""

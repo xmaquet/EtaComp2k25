@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple, Optional
 import math
 
 from ..models.session import SessionV2, SeriesKind, Direction
+from .critical_point import CriticalPoint, find_critical_point, fidelity_matches_critical
 
 
 @dataclass
@@ -54,12 +55,10 @@ class CalculationEngine:
             return sum(lst) / len(lst) if lst else None
 
         calib_rows: List[Dict] = []
-        total_error_mm = 0.0
-        total_loc: Dict = {}
-
-        # Pour calcul local error besoin des erreurs successives
-        up_errors: List[Tuple[float, float]] = []   # (target, error)
+        up_errors: List[Tuple[float, float]] = []
         down_errors: List[Tuple[float, float]] = []
+        up_means: Dict[float, float] = {}
+        down_means: Dict[float, float] = {}
 
         hysteresis_max = 0.0
         hysteresis_loc: Dict = {}
@@ -72,22 +71,12 @@ class CalculationEngine:
 
             if up_err is not None:
                 up_errors.append((t, up_err))
-                if abs(up_err) > abs(total_error_mm):
-                    total_error_mm = float(up_err)
-                    total_loc = {
-                        "target_mm": t, "direction": "up",
-                        "measured_mm": up_m, "reference_mm": t,
-                        "error_mm": up_err
-                    }
+                if up_m is not None:
+                    up_means[t] = up_m
             if down_err is not None:
                 down_errors.append((t, down_err))
-                if abs(down_err) > abs(total_error_mm):
-                    total_error_mm = float(down_err)
-                    total_loc = {
-                        "target_mm": t, "direction": "down",
-                        "measured_mm": down_m, "reference_mm": t,
-                        "error_mm": down_err
-                    }
+                if down_m is not None:
+                    down_means[t] = down_m
 
             hyst = None
             if (up_m is not None) and (down_m is not None):
@@ -108,6 +97,12 @@ class CalculationEngine:
                 "down_error_mm": down_err,
                 "hysteresis_mm": hyst,
             })
+
+        critical: CriticalPoint | None = find_critical_point(
+            targets, up_errors, down_errors, up_means=up_means, down_means=down_means
+        )
+        total_loc: Dict = critical.to_location_dict() if critical else {}
+        total_error_mm = critical.error_mm if critical else 0.0
 
         # Erreur locale (variations successives)
         def max_step_err(errs: List[Tuple[float, float]]) -> Tuple[float, Dict]:
@@ -134,25 +129,30 @@ class CalculationEngine:
         # Fidélité (série 5)
         fidelity_std = None
         fidelity_ctx = None
-        if total_loc:
-            crit_target = total_loc.get("target_mm")
-            crit_dir = total_loc.get("direction")
-            # Chercher série kind=FIDELITY avec même direction
+        if critical:
+            crit_target = critical.target_mm
+            crit_dir = critical.direction
             for s in session.series:
-                if s.kind == SeriesKind.FIDELITY and s.direction.value == crit_dir:
-                    samples = [m.value_mm for m in s.measurements if abs(m.target_mm - crit_target) < 1e-9]
-                    if len(samples) >= 2:
-                        mean_s = sum(samples) / len(samples)
-                        var = sum((x - mean_s) ** 2 for x in samples) / len(samples)  # ddof=0
-                        std = math.sqrt(var)
-                        fidelity_std = std
-                        fidelity_ctx = {
-                            "target_mm": crit_target,
-                            "direction": crit_dir,
-                            "samples": samples,
-                            "mean_mm": mean_s,
-                            "std_mm": std
-                        }
+                if s.kind != SeriesKind.FIDELITY:
+                    continue
+                if not fidelity_matches_critical(
+                    critical, target_mm=s.measurements[0].target_mm if s.measurements else 0.0,
+                    direction=s.direction.value,
+                ):
+                    continue
+                samples = [m.value_mm for m in s.measurements if abs(m.target_mm - crit_target) < 1e-9]
+                if len(samples) >= 2:
+                    mean_s = sum(samples) / len(samples)
+                    var = sum((x - mean_s) ** 2 for x in samples) / len(samples)  # ddof=0
+                    std = math.sqrt(var)
+                    fidelity_std = std
+                    fidelity_ctx = {
+                        "target_mm": crit_target,
+                        "direction": crit_dir,
+                        "samples": samples,
+                        "mean_mm": mean_s,
+                        "std_mm": std,
+                    }
                     break
 
         return CalculatedResults(
