@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -8,6 +9,9 @@ from ..models.session import (
     SessionV2, Series, SeriesKind, Direction, Measurement
 )
 from ..io.storage import list_comparators
+from .campaign_cycles import MAX_CAMPAIGN_CYCLES, clamp_series_count
+
+logger = logging.getLogger(__name__)
 
 
 def _snapshot_comparator(ref: Optional[str]) -> dict:
@@ -42,11 +46,16 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
     # Déterminer les cibles (depuis rt.series qui liste par cible)
     targets = [float(ms.target) for ms in rt.series] if rt.series else []
 
-    # Construire 4 séries MAIN si possible (ou plus si series_count>2)
     main_series: list[Series] = []
-    cycles = max(1, int(rt.series_count or 1))
-    # Pour compat métier standard (S1..S4), on ne prend que les deux premiers cycles si >2
-    cycles = min(cycles, 2)
+    requested_cycles = max(1, int(rt.series_count or 1))
+    cycles, was_clamped = clamp_series_count(requested_cycles)
+    if was_clamped:
+        logger.warning(
+            "series_count=%s limité à %s (max %s cycles → séries S1–S4).",
+            requested_cycles,
+            cycles,
+            MAX_CAMPAIGN_CYCLES,
+        )
     for cyc in range(1, cycles + 1):
         # Série montée (index 2*cyc-1)
         up_idx = 2 * cyc - 1
@@ -66,8 +75,7 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
         )
         main_series.extend([s_up, s_dn])
 
-    # Remplir les mesures si données présentes
-    # pos -> cycle index (1-based), direction
+    dropped_measurements = 0
     for t_i, ms in enumerate(rt.series or []):
         for pos, val in enumerate(ms.readings or []):
             if val is None:
@@ -75,7 +83,7 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
             cyc = (pos // 2) + 1
             up = (pos % 2 == 0)
             if cyc > cycles:
-                # ignorer cycles > 2 dans ce modèle standard
+                dropped_measurements += 1
                 continue
             series_index = 2 * cyc - (1 if up else 0)  # cyc:1 up->1, down->2 ; cyc:2 up->3, down->4
             direction = Direction.UP if up else Direction.DOWN
@@ -92,6 +100,13 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
                 if s.index == series_index:
                     s.measurements.append(m)
                     break
+
+    if dropped_measurements:
+        logger.warning(
+            "%s mesure(s) ignorée(s) : cycle > %s (encodage pos = (cycle-1)*2 + sens).",
+            dropped_measurements,
+            cycles,
+        )
 
     # Série de fidélité si présente sur la session runtime
     series_all = list(main_series)

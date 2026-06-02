@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **58/58** |
+| Tests passants | 39/50 | **60/60** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -46,6 +46,14 @@ Répertoire `tests/fixtures/sessions/` :
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
 
+## Issue #5 (2025-06-02)
+
+- Limite explicite **2 cycles** (`campaign_cycles.py`, séries S1–S4).
+- UI Session : spin 1–2, libellé et tooltip ; défaut prefs = 2.
+- Chargement session avec `series_count > 2` : avertissement + clamp.
+- Adapter : logs WARNING si mesures ignorées.
+- Tests : `test_session_adapter.py`.
+
 ## Issue #3 (2025-06-02)
 
 - `ToleranceRule.Eml` optionnelle (`None` = non applicable) dans `tolerance_engine.py`.
@@ -60,5 +68,5 @@ Répertoire `tests/fixtures/sessions/` :
 
 ## Prochaines étapes (roadmap)
 
-1. **#5** — Limite cycles session_adapter.
+1. **#6** — abs(value) acquisition série.
 3. Corriger les warnings `datetime.utcnow()` (issue **#7** dates).

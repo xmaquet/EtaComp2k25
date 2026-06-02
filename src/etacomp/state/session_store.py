@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, Signal
 
 from ..models.session import Session, MeasureSeries, FidelitySeries
 from ..config.prefs import load_prefs
+from ..core.campaign_cycles import clamp_series_count, MAX_CAMPAIGN_CYCLES
 from ..io.storage import list_sessions, load_session_file, save_session_file
 
 
@@ -17,6 +18,7 @@ class SessionStore(QObject):
     def __init__(self):
         super().__init__()
         self._current: Session = self._new_session_from_prefs()
+        self._cycles_clamped_on_load = False
 
     def _new_session_from_prefs(self) -> Session:
         prefs = load_prefs()
@@ -53,7 +55,8 @@ class SessionStore(QObject):
         s.comparator_ref = comparator_ref
         s.holder_ref = holder_ref
         s.banc_ref = banc_ref
-        s.series_count = series_count
+        cycles, _ = clamp_series_count(series_count)
+        s.series_count = cycles
         s.measures_per_series = measures_per_series
         s.observations = observations
         self.session_changed.emit(s)
@@ -120,9 +123,21 @@ class SessionStore(QObject):
         return list_sessions()
 
     def load_from_file(self, path: Path):
-        self._current = load_session_file(path)
+        loaded = load_session_file(path)
+        requested = loaded.series_count
+        cycles, clamped = clamp_series_count(requested)
+        loaded.series_count = cycles
+        self._cycles_clamped_on_load = clamped
+        self._current = loaded
         self.session_changed.emit(self._current)
         self.measures_updated.emit(self._current)
+
+    def consume_cycles_clamp_warning(self) -> bool:
+        """True une fois si le dernier chargement a dû réduire series_count."""
+        if self._cycles_clamped_on_load:
+            self._cycles_clamped_on_load = False
+            return True
+        return False
 
 
 session_store = SessionStore()

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...models.session import MeasureSeries
+from ...core.campaign_cycles import MAX_CAMPAIGN_CYCLES, clamp_series_count
 from ...core.critical_point import find_critical_point
 from ...state.session_store import session_store
 from ...io.serial_manager import serial_manager
@@ -170,7 +171,7 @@ class MeasuresTab(QWidget):
             self.targets = [0.0] + sorted(others)
 
         # Lignes : montantes (N), moyenne montantes, descendantes (N), moyenne descendantes, indices
-        self.cycles = max(1, s.series_count or 1)
+        self.cycles, _ = clamp_series_count(s.series_count)
         rows = self.cycles * 2 + 3
         cols = len(self.targets)
 
