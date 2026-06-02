@@ -71,7 +71,29 @@ class SessionStore(QObject):
 
     # ----- Série de fidélité (S5) -----
     def set_fidelity(self, target: float, direction: str, samples: list[float], timestamps: list[str] | None = None):
-        """Enregistre la série de 5 mesures (fidélité) dans la session runtime."""
+        """Enregistre la série de 5 mesures (fidélité) au point critique."""
+        from ..core.session_adapter import build_session_from_runtime
+        from ..core.calculation_engine import CalculationEngine
+        from ..core.critical_point import CriticalPoint
+
+        rt = self._current
+        v2 = build_session_from_runtime(rt)
+        v2.series = [s for s in v2.series if s.kind.value != "fidelity"]
+        calc = CalculationEngine().compute(v2)
+        loc = calc.total_error_location or {}
+        if loc:
+            cp = CriticalPoint(
+                target_mm=float(loc["target_mm"]),
+                direction=loc["direction"],
+                measured_mm=float(loc.get("measured_mm", loc["target_mm"])),
+                reference_mm=float(loc.get("reference_mm", loc["target_mm"])),
+                error_mm=float(loc.get("error_mm", 0.0)),
+            )
+        else:
+            cp = None
+        if cp is not None:
+            target = cp.target_mm
+            direction = cp.direction
         self._current.fidelity = FidelitySeries(
             target=float(target),
             direction="up" if str(direction).lower().startswith("u") else "down",

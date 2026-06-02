@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **50/50** |
+| Tests passants | 39/50 | **55/55** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -46,8 +46,13 @@ Répertoire `tests/fixtures/sessions/` :
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
 
+## Issues #2 et #4 (2025-06-02)
+
+- **#2** : module `rules/interval_match.py` partagé ; `tolerances.py` aligné sur intervalles semi-ouverts + détection chevauchements à la validation.
+- **#4** : module `core/critical_point.py` ; moteur, onglet Mesures et `session_store.set_fidelity` utilisent la même logique de tie-break.
+
 ## Prochaines étapes (roadmap)
 
-1. **#2** — Unifier les moteurs de tolérances (supprimer divergence inclusif / semi-ouvert).
-2. **#4** — Point critique fidélité UI vs `CalculationEngine`.
+1. **#3** — Eml optionnelle (Pydantic / UI).
+2. **#5** — Limite cycles session_adapter.
 3. Corriger les warnings `datetime.utcnow()` (issue **#7** dates).

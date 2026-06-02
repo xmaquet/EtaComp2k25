@@ -69,9 +69,10 @@ class TestToleranceRuleEngine:
         assert rule.course_min == 0.0
         assert rule.course_max == 10.0
         
-        # Limite inclusive : course=10.0 matche [0,10] et [10,20] → chevauchement
-        with pytest.raises(ConfigurationOverlapError):
-            self.engine.match("normale", 0.01, 10.0)
+        # Limite semi-ouverte : course=10.0 → première règle [0,10] uniquement
+        rule = self.engine.match("normale", 0.01, 10.0)
+        assert rule is not None
+        assert rule.course_max == 10.0
         
         # Test graduation exacte dans deuxième plage
         rule = self.engine.match("normale", 0.01, 15.0)
@@ -132,7 +133,7 @@ class TestToleranceRuleEngine:
         assert rule is None
     
     def test_overlap_detection(self):
-        """Test détection de chevauchement au matching (validate() ne le signale plus)."""
+        """Test détection de chevauchement à la validation."""
         overlapping_engine = ToleranceRuleEngine()
         overlapping_engine.rules["normale"] = [
             ToleranceRule(
@@ -144,8 +145,9 @@ class TestToleranceRuleEngine:
                 Emt=0.015, Eml=0.012, Ef=0.003, Eh=0.012
             ),
         ]
-        with pytest.raises(ConfigurationOverlapError):
-            overlapping_engine.match("normale", 0.01, 12.0)
+        errors = overlapping_engine.validate()
+        assert len(errors) > 0
+        assert any("chevauchement" in e for e in errors)
     
     def test_duplicate_graduation_faible(self):
         """Test détection de graduation dupliquée pour faible/limitée."""
