@@ -14,9 +14,10 @@ from .datetime_utils import runtime_created_iso, utc_now_iso, utc_session_id_suf
 logger = logging.getLogger(__name__)
 
 
-def _snapshot_comparator(ref: Optional[str]) -> dict:
+def capture_comparator_snapshot(ref: Optional[str]) -> Optional[dict]:
+    """Capture le profil comparateur depuis la bibliothèque (à la sauvegarde / changement de ref)."""
     if not ref:
-        return {}
+        return None
     for c in list_comparators():
         if c.reference == ref:
             return {
@@ -28,7 +29,46 @@ def _snapshot_comparator(ref: Optional[str]) -> dict:
                 "range_type": getattr(c.range_type, "value", None),
                 "targets": list(c.targets),
             }
+    return None
+
+
+def _snapshot_is_usable(snap: dict) -> bool:
+    if not snap or not snap.get("reference"):
+        return False
+    return bool(snap.get("targets")) or (
+        snap.get("graduation") is not None and snap.get("course") is not None
+    )
+
+
+def resolve_comparator_snapshot(rt: RuntimeSession) -> dict:
+    """
+    Profil pour calcul / verdict : snapshot session prioritaire, bibliothèque en secours.
+    """
+    snap = getattr(rt, "comparator_snapshot", None) or {}
+    if isinstance(snap, dict) and _snapshot_is_usable(snap):
+        return dict(snap)
+    ref = rt.comparator_ref
+    live = capture_comparator_snapshot(ref)
+    if live:
+        if snap:
+            logger.warning(
+                "Snapshot comparateur incomplet pour %s — profil bibliothèque utilisé",
+                ref,
+            )
+        else:
+            logger.warning(
+                "Session sans snapshot comparateur (%s) — profil bibliothèque actuel utilisé",
+                ref,
+            )
+        return live
+    if ref:
+        logger.warning("Comparateur %s introuvable — snapshot vide", ref)
     return {}
+
+
+def sync_comparator_snapshot(rt: RuntimeSession) -> None:
+    """Met à jour le snapshot figé sur la session runtime."""
+    rt.comparator_snapshot = capture_comparator_snapshot(rt.comparator_ref)
 
 
 def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
@@ -137,17 +177,9 @@ def build_session_from_runtime(rt: RuntimeSession) -> SessionV2:
         temperature_c=rt.temperature_c,
         humidity_rh=rt.humidity_pct,
         comparator_ref=rt.comparator_ref or "",
-        comparator_snapshot=_snapshot_comparator(rt.comparator_ref),
+        comparator_snapshot=resolve_comparator_snapshot(rt),
         notes=rt.observations or "",
         series=series_all,
     )
     return v2
-
-
-def apply_session_to_ui(session_v2: SessionV2, ui_state) -> None:
-    """
-    Place‑holder: applique une session V2 vers l’état UI si besoin (non utilisé pour le moment).
-    """
-    # Intégration future: reconstruire tables, etc.
-    return
 

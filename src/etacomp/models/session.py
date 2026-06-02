@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 
 
@@ -29,6 +29,7 @@ class Session(BaseModel):
     temperature_c: Optional[float] = None
     humidity_pct: Optional[float] = None
     comparator_ref: Optional[str] = None
+    comparator_snapshot: Optional[Dict] = None  # profil figé (audit) — issue #13
     holder_ref: Optional[str] = None  # code ES du détenteur
     banc_ref: Optional[str] = None  # référence banc étalon (hors défaut)
 

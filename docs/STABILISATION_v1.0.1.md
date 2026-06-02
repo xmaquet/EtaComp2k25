@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **69/69** |
+| Tests passants | 39/50 | **87/87** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -45,6 +45,40 @@ Répertoire `tests/fixtures/sessions/` :
 
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
+
+## Issue #14 (2025-06-02)
+
+- `package-data` : `resources/**` (aide, logos).
+- Module `package_resources.py` (`importlib.resources`) — plus de chemins `C:\Users\...` ni `src/etacomp/...`.
+- Autosave minimal : timer + `save_autosave_session` → `autosave/autosave_session.json`.
+- Code mort supprimé : `fidelity_gap.py`, `apply_session_to_ui`.
+- `CHANGELOG.md` ; tests `test_package_resources.py`, `test_autosave.py`.
+
+## Issue #13 (2025-06-02)
+
+- `Session.comparator_snapshot` persisté à l'enregistrement et au changement de comparateur.
+- `resolve_comparator_snapshot` : snapshot session prioritaire sur la bibliothèque live ; warning si absent.
+- Tests : `tests/test_session_snapshot.py`.
+
+## Issue #10 (2025-06-02)
+
+- `atomic_write` (`.tmp` + `os.replace`) pour sessions, comparateurs, détenteurs, bancs.
+- `sanitize_filename` pour références comparateur / session / export PDF.
+- Fichiers corrompus : `logger.warning` / `logger.error` au lieu de `except: pass` silencieux ; `load_session_file` lève une erreur explicite (UI existante).
+- Tests : `tests/test_storage_atomic.py`.
+
+## Issue #9 (2025-06-02)
+
+- `MainWindow.closeEvent` → `serial_manager.close()` (port COM + thread TESA).
+- `SerialManager.close()` : signal d'arrêt, fermeture du port puis `join` du thread (déblocage lecture bloquante).
+- Tests : `tests/test_serial_shutdown.py`.
+
+## Issue #12 (2025-06-02)
+
+- Bloc D « TODO » remplacé par la section **Résultats métrologiques** (tableau Critère | Mesuré | Limite | Dépassement | Statut).
+- Données issues de `verdict.measured`, `verdict.limits`, `verdict.exceed` ; Ef absente → « Indisponible ».
+- Courbe d'étalonnage conservée (bloc C).
+- Tests : `tests/test_pdf_export.py` (extraction texte via `pypdf` en dev).
 
 ## Issue #8 (2025-06-02)
 

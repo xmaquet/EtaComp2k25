@@ -9,6 +9,7 @@ from datetime import datetime
 from ..models.session import Session, MeasureSeries, FidelitySeries
 from ..config.prefs import load_prefs
 from ..core.campaign_cycles import clamp_series_count, MAX_CAMPAIGN_CYCLES
+from ..core.session_adapter import sync_comparator_snapshot
 from ..io.storage import list_sessions, load_session_file, save_session_file
 
 
@@ -53,6 +54,7 @@ class SessionStore(QObject):
         observations: str | None,
     ):
         s = self._current
+        ref_changed = comparator_ref != s.comparator_ref
         s.operator = operator
         s.temperature_c = temperature_c
         s.humidity_pct = humidity_pct
@@ -63,6 +65,8 @@ class SessionStore(QObject):
         s.series_count = cycles
         s.measures_per_series = measures_per_series
         s.observations = observations
+        if ref_changed:
+            sync_comparator_snapshot(s)
         self.session_changed.emit(s)
 
     def set_series(self, series: List[MeasureSeries]):
@@ -119,6 +123,7 @@ class SessionStore(QObject):
     def save(self) -> Path:
         if not self.can_save():
             raise RuntimeError("Impossible d’enregistrer : aucune mesure.")
+        sync_comparator_snapshot(self._current)
         p = save_session_file(self._current)
         self.saved.emit(p)
         return p

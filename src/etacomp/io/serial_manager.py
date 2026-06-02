@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from typing import Optional, Tuple
 from PySide6.QtCore import QObject, Signal
+
+logger = logging.getLogger(__name__)
 
 from .serialio import SerialConnection, SerialReaderThread
 from .tesa_reader import TesaSerialReader
@@ -106,9 +109,20 @@ class SerialManager(QObject):
         self.connected_changed.emit(True)
 
     def close(self):
-        self._stop_reader()
+        """Arrête le thread lecteur et libère le port COM."""
+        reader = self._reader
+        self._reader = None
+        if reader:
+            reader._stop.set()
         self._conn.close()
+        if reader:
+            if getattr(reader, "_th", None):
+                reader._th.join(timeout=2.0)
+                if reader._th.is_alive():
+                    logger.warning("Thread lecteur série non arrêté dans le délai imparti")
+            reader._th = None
         self.connected_changed.emit(False)
+        logger.info("Port série fermé")
 
     # --------- ENVOI ---------
     def send_text(self, text: str, eol: bytes | None = None):
@@ -148,9 +162,13 @@ class SerialManager(QObject):
         self._reader.start()
 
     def _stop_reader(self):
-        if self._reader:
-            self._reader.stop()
-            self._reader = None
+        reader = self._reader
+        self._reader = None
+        if reader:
+            try:
+                reader.stop()
+            except Exception as exc:
+                logger.warning("Arrêt lecteur série : %s", exc)
 
     def _on_line(self, raw: str, value: float | None):
         self.line_received.emit(raw, value)

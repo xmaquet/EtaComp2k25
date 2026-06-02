@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+import logging
+from pathlib import Path
 from typing import Type, TypeVar, List, Optional
 
 from ..config.paths import get_data_dir
@@ -9,6 +10,10 @@ from ..models.comparator import Comparator
 from ..models.detenteur import Detenteur
 from ..models.banc_etalon import BancEtalon
 from ..models.session import Session
+from .atomic_write import atomic_write
+from .safe_filename import sanitize_filename
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", Comparator, Session)
 
@@ -22,18 +27,26 @@ def _subdir_path(subdir: str) -> Path:
 
 def save_model(model: T, subdir: str, filename: str) -> Path:
     dest = _subdir_path(subdir) / filename
-    dest.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+    atomic_write(dest, model.model_dump_json(indent=2))
     return dest
 
 
 def load_model(cls: type[T], subdir: str, filename: str) -> T:
     path = _subdir_path(subdir) / filename
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return cls.model_validate(data)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return cls.model_validate(data)
+    except Exception as exc:
+        logger.error("Fichier illisible %s : %s", path, exc)
+        raise ValueError(f"Fichier invalide ou corrompu : {path.name}") from exc
 
 
 # ---------- Comparators ----------
 COMPARATORS_DIR = "comparators"
+
+
+def _comparator_filename(reference: str) -> str:
+    return f"{sanitize_filename(reference)}.json"
 
 
 def list_comparator_files() -> List[Path]:
@@ -46,22 +59,19 @@ def list_comparators() -> List[Comparator]:
     for fp in list_comparator_files():
         try:
             data = json.loads(fp.read_text(encoding="utf-8"))
-            # Le validateur gère la migration (déduction course/graduation/range_type)
             comps.append(Comparator.model_validate(data))
-        except Exception:
-            # on ignore les fichiers corrompus
+        except Exception as exc:
+            logger.warning("Comparateur ignoré (%s) : %s", fp.name, exc)
             continue
     return comps
 
 
 def save_comparator(c: Comparator) -> Path:
-    base = c.reference.strip().replace(" ", "_")
-    return save_model(c, COMPARATORS_DIR, f"{base}.json")
+    return save_model(c, COMPARATORS_DIR, _comparator_filename(c.reference))
 
 
 def delete_comparator_by_reference(reference: str) -> bool:
-    base = reference.strip().replace(" ", "_")
-    fp = _subdir_path(COMPARATORS_DIR) / f"{base}.json"
+    fp = _subdir_path(COMPARATORS_DIR) / _comparator_filename(reference)
     if fp.exists():
         fp.unlink()
         return True
@@ -85,7 +95,8 @@ def list_detenteurs() -> List[Detenteur]:
         data = json.loads(fp.read_text(encoding="utf-8"))
         items = data.get("detenteurs", data) if isinstance(data, dict) else data
         return [Detenteur.model_validate(d) for d in items]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Fichier détenteurs illisible : %s", exc)
         return []
 
 
@@ -94,7 +105,7 @@ def save_detenteurs(detenteurs: List[Detenteur]) -> Path:
     get_data_dir().mkdir(parents=True, exist_ok=True)
     fp = get_data_dir() / DETENTEURS_FILE
     payload = {"detenteurs": [d.model_dump() for d in detenteurs]}
-    fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic_write(fp, json.dumps(payload, indent=2))
     return fp
 
 
@@ -129,7 +140,8 @@ def list_bancs_etalon() -> List[BancEtalon]:
         data = json.loads(fp.read_text(encoding="utf-8"))
         items = data.get("bancs", data) if isinstance(data, dict) else data
         return [BancEtalon.model_validate(d) for d in items]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Fichier bancs étalon illisible : %s", exc)
         return []
 
 
@@ -138,7 +150,7 @@ def save_bancs_etalon(bancs: List[BancEtalon]) -> Path:
     get_data_dir().mkdir(parents=True, exist_ok=True)
     fp = get_data_dir() / BANCS_ETALON_FILE
     payload = {"bancs": [b.model_dump() for b in bancs]}
-    fp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    atomic_write(fp, json.dumps(payload, indent=2))
     return fp
 
 
@@ -157,10 +169,12 @@ def list_bancs_etalon_for_session() -> List[BancEtalon]:
 
 # ---------- Sessions ----------
 SESSIONS_DIR = "sessions"
+AUTOSAVE_DIR = "autosave"
+AUTOSAVE_FILENAME = "autosave_session.json"
 
 
 def _default_session_filename(s: Session) -> str:
-    ref = (s.comparator_ref or "sans_ref").strip().replace(" ", "_")
+    ref = sanitize_filename(s.comparator_ref or "sans_ref")
     dt = s.date.strftime("%Y%m%d_%H%M%S")
     return f"{ref}_{dt}.json"
 
@@ -168,6 +182,16 @@ def _default_session_filename(s: Session) -> str:
 def list_sessions() -> List[Path]:
     d = _subdir_path(SESSIONS_DIR)
     return sorted(d.glob("*.json"), reverse=True)
+
+
+def save_autosave_session(s: Session) -> Optional[Path]:
+    """Sauvegarde automatique silencieuse (issue #14)."""
+    if not s.has_measures():
+        return None
+    from ..core.session_adapter import sync_comparator_snapshot
+
+    sync_comparator_snapshot(s)
+    return save_model(s, AUTOSAVE_DIR, AUTOSAVE_FILENAME)
 
 
 def save_session_file(s: Session, filename: Optional[str] = None) -> Path:
@@ -178,5 +202,9 @@ def save_session_file(s: Session, filename: Optional[str] = None) -> Path:
 
 
 def load_session_file(path: Path) -> Session:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return Session.model_validate(data)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return Session.model_validate(data)
+    except Exception as exc:
+        logger.error("Session illisible %s : %s", path, exc)
+        raise ValueError(f"Fichier session invalide ou corrompu : {path.name}") from exc

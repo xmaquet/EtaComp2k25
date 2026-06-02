@@ -21,6 +21,7 @@ from .parameters import ParametersTab
 class SettingsTab(QWidget):
     # Signal émis quand l’utilisateur change le thème ("light" / "dark")
     themeChanged = Signal(str)
+    autosaveChanged = Signal()
 
     def __init__(self):
         super().__init__()
@@ -70,6 +71,10 @@ class SettingsTab(QWidget):
         f3 = QFormLayout(g_save)
 
         self.chk_autosave = QCheckBox("Activer la sauvegarde automatique")
+        self.chk_autosave.setToolTip(
+            "Enregistre la session en cours dans le dossier autosave/ du répertoire données "
+            "(sans confirmation), si des mesures sont présentes."
+        )
         self.chk_autosave.setChecked(self.prefs.autosave_enabled)
         self.spin_autosave = QSpinBox()
         self.spin_autosave.setRange(5, 3600)
@@ -172,6 +177,7 @@ class SettingsTab(QWidget):
         self.prefs.language = lang
 
         path = save_prefs(self.prefs)
+        self.autosaveChanged.emit()
         QMessageBox.information(self, "Paramètres", f"Paramètres enregistrés :\n{path}")
 
     def on_reset(self):
