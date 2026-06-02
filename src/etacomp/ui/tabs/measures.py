@@ -495,11 +495,11 @@ class MeasuresTab(QWidget):
             it.setForeground(QBrush())
 
     def _write_current_cell(self, value: float) -> bool:
-        # Prendre la valeur absolue (certains bancs renvoient des valeurs négatives selon le sens)
+        """Enregistre la valeur telle que lue (signe conservé pour erreur = mesuré − cible)."""
         try:
-            value = abs(float(value))
+            value = float(value)
         except Exception:
-            pass
+            return False
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
         col = self.current_col
         it = self.table.item(row, col)
@@ -522,11 +522,11 @@ class MeasuresTab(QWidget):
         return False
 
     def _write_specific_cell(self, row: int, col: int, value: float) -> bool:
-        """Écrit/écrase une valeur à la cellule spécifiée, met à jour le store et recalcule les moyennes."""
+        """Écrit/écrase une valeur à la cellule spécifiée (signe conservé)."""
         try:
-            value = abs(float(value))
+            value = float(value)
         except Exception:
-            pass
+            return False
         # Interdire écriture sur lignes moyennes/index
         if row in (self.row_avg_up_index, self.row_avg_down_index, self.row_index_line):
             return False

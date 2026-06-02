@@ -256,9 +256,8 @@ class FidelityDeviationsTab(QWidget):
     def _on_line(self, raw: str, value: float | None):
         if not self._capturing or value is None:
             return
-        # Enregistrer
         try:
-            v = abs(float(value))
+            v = float(value)
         except Exception:
             return
         # Anti-doublon: ignorer si même valeur reçue dans une petite fenêtre temporelle

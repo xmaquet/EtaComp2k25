@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **60/60** |
+| Tests passants | 39/50 | **62/62** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -45,6 +45,12 @@ Répertoire `tests/fixtures/sessions/` :
 
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
+
+## Issue #6 (2025-06-02)
+
+- Suppression de `abs()` à l'enregistrement série (Mesures, fidélité S5).
+- Détection du zéro initial : toujours `abs(value) <= tol` (comparaison seule).
+- Tests : `test_tesa_reader.py` (trame `-0.015`, erreur mesuré − cible).
 
 ## Issue #5 (2025-06-02)
 
