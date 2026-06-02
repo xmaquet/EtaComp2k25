@@ -41,9 +41,8 @@ def evaluate_tolerances(
     graduation = float(profile.get("graduation") or 0.0)
     course = float(profile.get("course") or 0.0) if family in ("normale", "grande") else None
 
-    measured = {
+    measured: Dict[str, float | None] = {
         "Emt": results.total_error_mm,
-        "Eml": results.local_error_mm,
         "Eh": results.hysteresis_max_mm,
         "Ef": results.fidelity_std_mm if results.fidelity_std_mm is not None else None,
     }
@@ -66,12 +65,14 @@ def evaluate_tolerances(
             limits={}
         )
 
-    # Construire limits uniquement avec les clés réellement présentes sur la règle
-    limits = {}
+    # Limites actives : Eml uniquement si définie sur la règle (None = non applicable)
+    limits: Dict[str, float] = {}
     for k in ("Emt", "Eml", "Ef", "Eh"):
         v = getattr(rule, k, None)
         if v is not None:
             limits[k] = v
+    if "Eml" in limits:
+        measured["Eml"] = results.local_error_mm
     exceed: Dict[str, float] = {}
     messages: list[str] = []
 

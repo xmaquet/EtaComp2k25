@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **55/55** |
+| Tests passants | 39/50 | **58/58** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -46,6 +46,13 @@ Répertoire `tests/fixtures/sessions/` :
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
 
+## Issue #3 (2025-06-02)
+
+- `ToleranceRule.Eml` optionnelle (`None` = non applicable) dans `tolerance_engine.py`.
+- `RuleEditDialog` : case « Eml non applicable » pour faible/limitée, pas de `setValue(None)`.
+- Verdict : `Eml` évaluée seulement si présente sur la règle (`0.0` ≠ `None`).
+- Tests : `test_tolerance_eml_optional.py`.
+
 ## Issues #2 et #4 (2025-06-02)
 
 - **#2** : module `rules/interval_match.py` partagé ; `tolerances.py` aligné sur intervalles semi-ouverts + détection chevauchements à la validation.
@@ -53,6 +60,5 @@ Répertoire `tests/fixtures/sessions/` :
 
 ## Prochaines étapes (roadmap)
 
-1. **#3** — Eml optionnelle (Pydantic / UI).
-2. **#5** — Limite cycles session_adapter.
+1. **#5** — Limite cycles session_adapter.
 3. Corriger les warnings `datetime.utcnow()` (issue **#7** dates).

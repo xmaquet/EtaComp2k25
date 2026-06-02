@@ -18,12 +18,12 @@ class OverlapError(ConfigurationError):
 
 @dataclass(frozen=True)
 class ToleranceRule:
-    """Règle de tolérance à graduation unique (mm)."""
+    """Règle de tolérance à graduation unique (mm). Eml=None : critère non applicable."""
     graduation: float
     Emt: float
-    Eml: float
     Ef: float
     Eh: float
+    Eml: float | None = None
     course_min: float | None = None
     course_max: float | None = None
 
@@ -59,12 +59,13 @@ class ToleranceRuleEngine:
                 raise ConfigurationError(f"Famille inconnue: {fam_key}")
             lst: List[ToleranceRule] = []
             for r in items:
+                eml_raw = r.get("Eml")
                 lst.append(ToleranceRule(
                     graduation=float(r["graduation"]),
                     Emt=float(r["Emt"]),
-                    Eml=float(r["Eml"]) if "Eml" in r and r["Eml"] is not None else None,
                     Ef=float(r["Ef"]),
                     Eh=float(r["Eh"]),
+                    Eml=float(eml_raw) if eml_raw is not None else None,
                     course_min=float(r["course_min"]) if "course_min" in r else None,
                     course_max=float(r["course_max"]) if "course_max" in r else None,
                 ))
