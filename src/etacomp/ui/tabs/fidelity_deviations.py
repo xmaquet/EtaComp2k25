@@ -290,34 +290,14 @@ class FidelityDeviationsTab(QWidget):
             # Injecter dans le calcul
             try:
                 rt = self.get_runtime_session()
-                _, results, verdict = self.provider.compute_with_fidelity(
-                    rt,
-                    target_mm=float(self._crit_target),
+                session_store.set_fidelity(
+                    target=float(self._crit_target),
                     direction=str(self._crit_dir),
-                    samples_mm=list(self._samples[:5]),
-                    timestamps_iso=list(self._timestamps[:5]),
+                    samples=list(self._samples[:5]),
+                    timestamps=list(self._timestamps[:5]),
                 )
-                # Mémoriser S5 pour que Finalisation l'intègre également
-                try:
-                    self.provider.remember_fidelity(
-                        comparator_ref=getattr(rt, "comparator_ref", None),
-                        target_mm=float(self._crit_target),
-                        direction=str(self._crit_dir),
-                        samples_mm=list(self._samples[:5]),
-                        timestamps_iso=list(self._timestamps[:5]),
-                    )
-                    # Persister dans la session runtime pour sauvegarde
-                    try:
-                        session_store.set_fidelity(
-                            target=float(self._crit_target),
-                            direction=str(self._crit_dir),
-                            samples=list(self._samples[:5]),
-                            timestamps=list(self._timestamps[:5]),
-                        )
-                    except Exception:
-                        pass
-                except Exception:
-                    pass
+                rt = self.get_runtime_session()
+                _, results, verdict = self.provider.compute_all(rt)
                 # Mettre à jour stats/limites comme dans refresh()
                 if results.fidelity_context and results.fidelity_context.get("samples"):
                     samples = results.fidelity_context["samples"]

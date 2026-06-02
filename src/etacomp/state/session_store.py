@@ -33,6 +33,7 @@ class SessionStore(QObject):
 
     def new_session(self):
         self._current = self._new_session_from_prefs()
+        self._current.fidelity = None
         self.session_changed.emit(self._current)
 
     @property

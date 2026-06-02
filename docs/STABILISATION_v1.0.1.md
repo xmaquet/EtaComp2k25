@@ -7,7 +7,7 @@ Branche : `stabilisation/v1.0.1`
 
 | Métrique | Avant | Après correctifs tests |
 |----------|-------|------------------------|
-| Tests passants | 39/50 | **66/66** |
+| Tests passants | 39/50 | **69/69** |
 | CI | absente | `.github/workflows/ci.yml` |
 
 Commande locale :
@@ -45,6 +45,13 @@ Répertoire `tests/fixtures/sessions/` :
 
 - `session_conforme_minimal.json` — session partielle (S1/S2) pour smoke import.
 - `README.md` — description des jeux de données.
+
+## Issue #8 (2025-06-02)
+
+- Suppression de `ResultsProvider._last_fidelity` et `remember_fidelity()`.
+- `compute_all` s'appuie uniquement sur `Session.fidelity` (via `session_adapter`).
+- `new_session()` remet `fidelity` à `None` ; capture S5 → `session_store.set_fidelity` uniquement.
+- Test : `test_fidelity_not_leaked_across_sessions_same_comparator`.
 
 ## Issue #7 (2025-06-02)
 
