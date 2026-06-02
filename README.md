@@ -27,8 +27,9 @@ Stockage dans `~/.EtaComp2K25/` : comparators, sessions, rules, detenteurs.json,
 
 ## Documentation
 
+- `docs/SYNTHESE_ARCHITECTURE_DETAILLEE.md` : synthèse architecture détaillée (modules, flux, données, UI)
 - `docs/SPECIFICATION_FONCTIONNELLE_EtaComp2K25.md` : cahier des charges fonctionnel complet
-- `docs/SYNTHESE_IMPLEMENTATIONS_18-02-2026.md` : synthèse des implémentations (détenteurs, bancs, exports, feedback, etc.)
+- `docs/SYNTHESE_IMPLEMENTATIONS.md` : journal des implémentations (fév.–juin 2026)
 - `docs/reverse-architecture.md` : architecture actuelle
 - `docs/code-map.md` : carte du code
 - Aide intégrée : menu Aide ou F1
