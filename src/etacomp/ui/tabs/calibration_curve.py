@@ -60,8 +60,8 @@ class CalibrationCurveTab(QWidget):
             "QPushButton{background:#0d6efd;color:#fff;font-weight:600;padding:6px 12px;border-radius:6px;}"
             "QPushButton:hover{background:#0b5ed7;}"
         )
-        bar.addStretch()
         bar.addWidget(self.btn_refresh)
+        bar.addStretch()
 
         root.addWidget(g_model)
         root.addWidget(g_plot, stretch=1)

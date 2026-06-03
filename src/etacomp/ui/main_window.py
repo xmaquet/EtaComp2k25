@@ -220,10 +220,9 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event: QCloseEvent):
-        """Issue #9 — libère le port COM et arrête TesaSerialReader / SerialReaderThread."""
+        """Issue #9 — libère le port COM (close() est idempotent ; aussi via aboutToQuit)."""
         try:
-            if serial_manager.is_open():
-                serial_manager.close()
+            serial_manager.close()
         except Exception:
             pass
         super().closeEvent(event)

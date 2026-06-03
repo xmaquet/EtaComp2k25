@@ -84,6 +84,22 @@ def draw_kv_table(
     return len(rows) * line_h
 
 
+def draw_kv_row_bold_value(
+    canvas_obj,
+    x: float,
+    y: float,
+    label_width_mm: float,
+    label: str,
+    value: str,
+) -> float:
+    """Ligne label (gras) + valeur en gras, une seule ligne."""
+    line_h = 4.5 * mm
+    canvas_obj.setFont("Helvetica-Bold", 8)
+    canvas_obj.drawString(x, y, _none_str(label))
+    canvas_obj.drawString(x + label_width_mm * mm, y, _none_str(value))
+    return line_h
+
+
 def draw_kv_row_with_wrap(
     canvas_obj,
     x: float,
@@ -242,12 +258,6 @@ def draw_grid_table(
     for i, row in enumerate(rows):
         _draw_row(y - (i + 1) * line_h, row)
 
-    # Grille horizontale
-    canvas_obj.setStrokeColor(colors.grey)
-    for r in range(n_rows + 1):
-        yy = y_top + line_h - r * line_h
-        canvas_obj.line(x, yy, x + w, yy)
-    canvas_obj.setStrokeColor(colors.black)
     return total_h
 
 
@@ -356,7 +366,7 @@ def export_pdf(
     logger.info("Export PDF : construction SessionV2")
     v2 = build_session_from_runtime(rt_session)
     now = datetime.now()
-    doc_ref = f"{now.strftime('%y%m%d')}-{doc_no:02d}"
+    doc_ref = f"{now.strftime('%y%m%d')}{doc_no:03d}"
     logger.info("Export PDF : n° document %s", doc_ref)
 
     # Chemin de sortie (ne pas écraser un fichier existant)
@@ -500,7 +510,8 @@ def export_pdf(
 
     h_right_top = len(rows_right_top) * 4.5 * mm
     h_detenteur = _measure_detenteur_height(c, half_w, label_w_mm, detenteur_val)
-    content_h = max(6 * 4.5 * mm, h_right_top + h_detenteur)
+    h_cv_no = 4.5 * mm
+    content_h = max(6 * 4.5 * mm, h_right_top + h_detenteur + h_cv_no)
     block_h_b = content_h + 2 * session_pad
     y -= block_h_b
     c.rect(MARGIN_LR, y, CONTENT_W, block_h_b, fill=0, stroke=1)
@@ -509,6 +520,8 @@ def export_pdf(
     draw_kv_table(c, x_right, y_content, half_w, rows_right_top, label_width_mm=label_w_mm)
     y_detenteur = y_content - h_right_top
     draw_kv_row_with_wrap(c, x_right, y_detenteur, half_w, "Détenteur", detenteur_val, label_w_mm)
+    y_cv_no = y_detenteur - h_detenteur
+    draw_kv_row_bold_value(c, x_right, y_cv_no, label_w_mm, "N° de CV", doc_ref)
     y -= block_gap
     y -= 6 * mm  # espace supplémentaire avant courbe d'étalonnage
 

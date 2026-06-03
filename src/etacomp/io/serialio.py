@@ -47,11 +47,24 @@ class SerialConnection:
         return self._ser is not None and self._ser.is_open
 
     def close(self):
+        ser = self._ser
+        self._ser = None
+        if not ser:
+            return
         try:
-            if self._ser and self._ser.is_open:
-                self._ser.close()
-        finally:
-            self._ser = None
+            if ser.is_open:
+                try:
+                    ser.cancel_read()
+                except Exception:
+                    pass
+                try:
+                    ser.setDTR(False)
+                    ser.setRTS(False)
+                except Exception:
+                    pass
+                ser.close()
+        except Exception:
+            pass
 
     def read_chunk(self) -> Optional[bytes]:
         if not self.is_open():

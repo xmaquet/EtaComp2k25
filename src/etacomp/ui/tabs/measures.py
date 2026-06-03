@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from ...models.session import MeasureSeries
 from ...core.campaign_cycles import MAX_CAMPAIGN_CYCLES, clamp_series_count
 from ...core.critical_point import find_critical_point
+from ...core.measure_reading import normalize_measured_mm, is_near_origin_mm
 from ...state.session_store import session_store
 from ...io.serial_manager import serial_manager
 from ...io.storage import list_comparators
@@ -34,7 +35,8 @@ TEXT_ON_LIGHT_BG = QColor(33, 37, 41)
 
 
 class MeasuresTab(QWidget):
-    ZERO_TOL = 1e-6  # tolérance pour tester ~0
+    # Conservé pour compatibilité tests / docs ; la détection zéro utilise is_near_origin_mm.
+    ZERO_TOL = 1e-6
 
     def __init__(self):
         super().__init__()
@@ -287,7 +289,7 @@ class MeasuresTab(QWidget):
         self.waiting_zero = True
         self._hl_last = None
         self._push_series_to_store()
-        self._recompute_means()
+        self._recompute_means2()
         self._update_status()
 
     # ------------- Logger & Probe -------------
@@ -350,9 +352,10 @@ class MeasuresTab(QWidget):
             row, col = self._override_cell
             wrote = self._write_specific_cell(row, col, value)
             if wrote:
-                # Fin du mode override; ne pas avancer le pointeur automatique
                 self._clear_override_visual()
                 self._override_cell = None
+                if self._finish_zero_step_if_applicable(row, col):
+                    pass
                 self._update_status()
             return
 
@@ -363,12 +366,17 @@ class MeasuresTab(QWidget):
                 serial_manager.send_text(trig, eol)
             return
 
-        # Démarrage de cycle : exiger ~0 au début
+        # Démarrage de cycle montée : repère ~0 (position absolue, pas brute 1e-6 mm)
         if self.waiting_zero:
-            if self.current_phase_up and self.current_col == 0 and abs(value) <= self.ZERO_TOL:
-                wrote = self._write_current_cell(value)
-                self.waiting_zero = False
+            target0 = self.targets[0] if self.targets else 0.0
+            if (
+                self.current_phase_up
+                and self.current_col == 0
+                and is_near_origin_mm(value, target0)
+            ):
+                wrote = self._write_current_cell(value, force=True)
                 if wrote:
+                    self.waiting_zero = False
                     finished = self._advance_after_write()
                     if finished:
                         self._stop_campaign()
@@ -404,6 +412,13 @@ class MeasuresTab(QWidget):
             return
         # Clic pendant la campagne:
         if self.campaign_running:
+            # Cellule courante vide en attente de zéro → forcer la prochaine lecture série ici
+            if self.waiting_zero and self._is_current_zero_cell(row, col) and self._is_cell_empty(row, col):
+                self._set_override_visual(row, col)
+                self.lbl_next.setText(
+                    "Repère zéro (nouvelle série) — présentez 0 sur le banc, valeur attendue sur la cellule jaune…"
+                )
+                return
             # Si clic sur une cellule REMPLIE: activer une correction dirigée
             it = self.table.item(row, col)
             if it and it.text().strip():
@@ -432,6 +447,35 @@ class MeasuresTab(QWidget):
     def _is_cell_empty(self, row: int, col: int) -> bool:
         it = self.table.item(row, col)
         return not (it and it.text().strip())
+
+    def _is_current_zero_cell(self, row: int, col: int) -> bool:
+        if not self.waiting_zero or col != 0:
+            return False
+        zr = self._row_for_state(self.current_cycle, True)
+        return row == zr and col == 0
+
+    def _finish_zero_step_if_applicable(self, row: int, col: int) -> bool:
+        """Après écriture manuelle sur la cellule zéro courante : valider et avancer."""
+        if not self.waiting_zero or not self._is_current_zero_cell(row, col):
+            return False
+        target0 = self.targets[0] if self.targets else 0.0
+        it = self.table.item(row, col)
+        if not it or not it.text().strip():
+            return False
+        try:
+            if not is_near_origin_mm(float(it.text()), target0):
+                return False
+        except ValueError:
+            return False
+        self.waiting_zero = False
+        finished = self._advance_after_write()
+        if finished:
+            self._stop_campaign()
+        else:
+            mode, trig, eol = self._safe_send_config()
+            if mode == "À la demande":
+                serial_manager.send_text(trig, eol)
+        return True
 
     def _set_state_from_cell(self, row: int, col: int) -> bool:
         """Repositionne le pointeur courant (cycle/phase/col) pour reprendre sur la cellule donnée si possible."""
@@ -494,16 +538,18 @@ class MeasuresTab(QWidget):
             it.setBackground(QBrush())
             it.setForeground(QBrush())
 
-    def _write_current_cell(self, value: float) -> bool:
-        """Enregistre la valeur telle que lue (signe conservé pour erreur = mesuré − cible)."""
+    def _write_current_cell(self, value: float, *, force: bool = False) -> bool:
+        """Enregistre la position absolue (mm) pour l'opérateur et le moteur de calcul."""
         try:
-            value = float(value)
+            col = self.current_col
+            target = self.targets[col]
+            value = normalize_measured_mm(float(value), target)
         except Exception:
             return False
         row = self._row_for_state(self.current_cycle, self.current_phase_up)
         col = self.current_col
         it = self.table.item(row, col)
-        if it is None or not it.text():
+        if force or it is None or not it.text():
             self._ensure_item(row, col).setText(str(value))
             self._color_filled_cell(row, col, self.targets[col], float(value))
             target = self.targets[col]
@@ -522,11 +568,7 @@ class MeasuresTab(QWidget):
         return False
 
     def _write_specific_cell(self, row: int, col: int, value: float) -> bool:
-        """Écrit/écrase une valeur à la cellule spécifiée (signe conservé)."""
-        try:
-            value = float(value)
-        except Exception:
-            return False
+        """Écrit/écrase une valeur à la cellule spécifiée (position absolue mm)."""
         # Interdire écriture sur lignes moyennes/index
         if row in (self.row_avg_up_index, self.row_avg_down_index, self.row_index_line):
             return False
@@ -534,6 +576,10 @@ class MeasuresTab(QWidget):
         if col < 0 or col >= len(self.targets):
             return False
         target = self.targets[col]
+        try:
+            value = normalize_measured_mm(float(value), target)
+        except Exception:
+            return False
         # Déterminer cycle/phase à partir de la ligne
         if row < self.row_avg_up_index:
             up = True
@@ -577,7 +623,8 @@ class MeasuresTab(QWidget):
                         pass
             mean_up_txt = ""
             if vals_up:
-                mean_err_up = sum((v - target) for v in vals_up) / len(vals_up)
+                mean_abs_up = sum(vals_up) / len(vals_up)
+                mean_err_up = mean_abs_up - target
                 mean_up_um = mean_err_up * 1000.0
                 mean_up_txt = f"{mean_up_um:+.1f}"
                 self._mean_up_um[c] = mean_up_um
@@ -585,6 +632,10 @@ class MeasuresTab(QWidget):
             it_up = self._ensure_item(self.row_avg_up_index, c)
             f_up = it_up.font(); f_up.setBold(True); it_up.setFont(f_up)
             it_up.setForeground(QBrush())  # reset couleur
+            if vals_up:
+                it_up.setToolTip(
+                    f"Moyenne absolue : {mean_abs_up:.6f} mm\nÉcart moyen : {mean_up_um:+.1f} µm"
+                )
 
             # Moyenne descendantes
             vals_down = []
@@ -597,7 +648,8 @@ class MeasuresTab(QWidget):
                         pass
             mean_down_txt = ""
             if vals_down:
-                mean_err_down = sum((v - target) for v in vals_down) / len(vals_down)
+                mean_abs_down = sum(vals_down) / len(vals_down)
+                mean_err_down = mean_abs_down - target
                 mean_down_um = mean_err_down * 1000.0
                 mean_down_txt = f"{mean_down_um:+.1f}"
                 self._mean_down_um[c] = mean_down_um
@@ -605,8 +657,15 @@ class MeasuresTab(QWidget):
             it_dn = self._ensure_item(self.row_avg_down_index, c)
             f_dn = it_dn.font(); f_dn.setBold(True); it_dn.setFont(f_dn)
             it_dn.setForeground(QBrush())  # reset couleur
+            if vals_down:
+                it_dn.setToolTip(
+                    f"Moyenne absolue : {mean_abs_down:.6f} mm\nÉcart moyen : {mean_down_um:+.1f} µm"
+                )
         self._highlight_max_mean_error()
 
+    def _recompute_means(self):
+        """Alias — une seule implémentation (_recompute_means2)."""
+        self._recompute_means2()
 
     class _OverrideCellDelegate(QStyledItemDelegate):
         """Délégué qui dessine un encadrement pointillé épais autour de la cellule en override."""
@@ -681,56 +740,6 @@ class MeasuresTab(QWidget):
     def _push_series_to_store(self):
         ordered = [self.by_target[t] for t in self.targets]
         session_store.set_series(ordered)
-
-    def _recompute_means(self):
-        # Conserver les valeurs numériques (µm) pour mise en évidence du point critique
-        self._mean_up_um: List[Optional[float]] = [None] * self.table.columnCount()
-        self._mean_down_um: List[Optional[float]] = [None] * self.table.columnCount()
-        for c in range(self.table.columnCount()):
-            target = self.targets[c] if c < len(self.targets) else 0.0
-            # Moyenne montantes
-            vals_up = []
-            for r in range(0, self.row_avg_up_index):
-                it = self.table.item(r, c)
-                if it and it.text():
-                    try:
-                        vals_up.append(float(it.text()))
-                    except ValueError:
-                        pass
-            # moyenne des écarts (mesuré - cible)
-            mean_up_txt = ""
-            if vals_up:
-                mean_err_up = sum((v - target) for v in vals_up) / len(vals_up)
-                mean_up_um = mean_err_up * 1000.0
-                mean_up_txt = f"{mean_up_um:+.1f}"
-                self._mean_up_um[c] = mean_up_um
-            self._ensure_item(self.row_avg_up_index, c).setText(mean_up_txt)
-            # µm: rendre en gras (ligne moyenne ↑)
-            it_up = self._ensure_item(self.row_avg_up_index, c)
-            f_up = it_up.font(); f_up.setBold(True); it_up.setFont(f_up)
-
-            # Moyenne descendantes
-            vals_down = []
-            for r in range(self.row_avg_up_index + 1, self.row_avg_down_index):
-                it = self.table.item(r, c)
-                if it and it.text():
-                    try:
-                        vals_down.append(float(it.text()))
-                    except ValueError:
-                        pass
-            # moyenne des écarts (mesuré - cible)
-            mean_down_txt = ""
-            if vals_down:
-                mean_err_down = sum((v - target) for v in vals_down) / len(vals_down)
-                mean_down_um = mean_err_down * 1000.0
-                mean_down_txt = f"{mean_down_um:+.1f}"
-                self._mean_down_um[c] = mean_down_um
-            self._ensure_item(self.row_avg_down_index, c).setText(mean_down_txt)
-            # µm: rendre en gras (ligne moyenne ↓)
-            it_dn = self._ensure_item(self.row_avg_down_index, c)
-            f_dn = it_dn.font(); f_dn.setBold(True); it_dn.setFont(f_dn)
-        # Mettre en évidence la plus grande valeur d'écart (par les moyennes)
-        self._highlight_max_mean_error()
 
     def _clear_mean_highlights(self):
         # Réinitialise le style des lignes de moyennes

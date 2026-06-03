@@ -69,6 +69,11 @@ class SessionStore(QObject):
             sync_comparator_snapshot(s)
         self.session_changed.emit(s)
 
+    def update_observations(self, observations: str | None) -> None:
+        """Met à jour les observations (texte libre) et notifie l'UI."""
+        self._current.observations = (observations or "").strip() or None
+        self.session_changed.emit(self._current)
+
     def set_series(self, series: List[MeasureSeries]):
         self._current.series = series
         self.measures_updated.emit(self._current)

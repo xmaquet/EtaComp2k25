@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QLabel, QPushButton, QHBoxLayout,
     QTextEdit, QTableWidget, QTableWidgetItem, QMessageBox, QSizePolicy,
-    QInputDialog,
+    QInputDialog, QFormLayout, QLineEdit,
 )
 
 from ...core.calculation_engine import CalculatedResults
@@ -58,6 +60,16 @@ class FinalizationTab(QWidget):
         
         # Donne le maximum d'espace vertical au bloc de synthèse
         layout.addWidget(self.summary_group, stretch=1)
+
+        obs_group = QGroupBox("Observations")
+        obs_form = QFormLayout(obs_group)
+        self.observations_input = QLineEdit()
+        self.observations_input.setPlaceholderText("Commentaires ou conditions particulières (optionnel)")
+        self.observations_input.setToolTip(
+            "Modifiable jusqu'à l'export PDF — enregistré dans la session comme les autres paramètres."
+        )
+        obs_form.addRow("Observations", self.observations_input)
+        layout.addWidget(obs_group)
         
         # Boutons d'action
         action_layout = QHBoxLayout()
@@ -71,6 +83,7 @@ class FinalizationTab(QWidget):
         
         self.btn_calculate.clicked.connect(self._calculate_errors)
         self.btn_export_pdf.clicked.connect(self._export_pdf)
+        self.observations_input.editingFinished.connect(self._push_observations_from_ui)
         
         action_layout.addWidget(self.btn_calculate)
         action_layout.addStretch()
@@ -80,10 +93,42 @@ class FinalizationTab(QWidget):
         
         # Connecter aux changements de session
         session_store.session_changed.connect(self._on_session_changed)
-    
+        self._refresh_observations_from_store()
+
     def _on_session_changed(self):
         """Appelé quand la session change."""
+        self._refresh_observations_from_store()
         self._update_display()
+
+    def _refresh_observations_from_store(self):
+        s = session_store.current
+        self.observations_input.blockSignals(True)
+        self.observations_input.setText((s.observations or "") if s else "")
+        self.observations_input.setEnabled(s is not None)
+        self.observations_input.blockSignals(False)
+
+    def _push_observations_from_ui(self):
+        session_store.update_observations(self.observations_input.text().strip() or None)
+
+    def _show_export_pdf_success(self, path: Union[Path, str]) -> None:
+        """Alerte post-export avec accès direct au fichier et au dossier exports."""
+        pdf_path = Path(path).resolve()
+        mbox = QMessageBox(self)
+        mbox.setIcon(QMessageBox.Icon.Information)
+        mbox.setWindowTitle("Export PDF")
+        mbox.setText("Rapport exporté avec succès.")
+        mbox.setInformativeText(str(pdf_path))
+
+        btn_open_file = mbox.addButton("Ouvrir le PDF", QMessageBox.ButtonRole.ActionRole)
+        btn_open_folder = mbox.addButton("Ouvrir le dossier", QMessageBox.ButtonRole.ActionRole)
+        mbox.addButton(QMessageBox.StandardButton.Ok)
+
+        mbox.exec()
+        clicked = mbox.clickedButton()
+        if clicked == btn_open_file:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf_path)))
+        elif clicked == btn_open_folder:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(pdf_path.parent)))
     
     def _update_display(self):
         """Met à jour l'affichage selon l'état actuel."""
@@ -100,6 +145,7 @@ class FinalizationTab(QWidget):
     
     def _calculate_errors(self):
         """Calcule les erreurs via CalculationEngine à partir du runtime Session."""
+        self._push_observations_from_ui()
         rt = session_store.current
         if rt is None or not rt.has_measures():
             QMessageBox.warning(self, "Erreur", "Aucune session active ou aucune mesure.")
@@ -172,6 +218,7 @@ class FinalizationTab(QWidget):
     def _export_pdf(self):
         logger.info("Export PDF : démarrage")
         self._status("Export PDF…")
+        self._push_observations_from_ui()
 
         rt = session_store.current
         if rt is None:
@@ -222,11 +269,7 @@ class FinalizationTab(QWidget):
             from ...io.pdf_exporter import export_pdf
             path = export_pdf(rt, exp_cfg, results, verdict, doc_no=doc_no)
             logger.info("Export PDF : terminé → %s", path)
-            QMessageBox.information(
-                self,
-                "Export PDF",
-                f"Rapport exporté avec succès :\n{path}",
-            )
+            self._show_export_pdf_success(path)
             self._status("Export PDF terminé")
         except Exception as e:
             logger.exception("Export PDF : erreur de génération")

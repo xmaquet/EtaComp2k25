@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QTimer
 import time
 
 from ..results_provider import ResultsProvider
+from ...core.measure_reading import normalize_measured_mm
 from ...io.serial_manager import serial_manager
 from ...state.session_store import session_store
 
@@ -257,7 +258,8 @@ class FidelityDeviationsTab(QWidget):
         if not self._capturing or value is None:
             return
         try:
-            v = float(value)
+            target = float(self._crit_target) if self._crit_target is not None else 0.0
+            v = normalize_measured_mm(float(value), target)
         except Exception:
             return
         # Anti-doublon: ignorer si même valeur reçue dans une petite fenêtre temporelle

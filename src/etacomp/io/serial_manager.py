@@ -109,18 +109,28 @@ class SerialManager(QObject):
         self.connected_changed.emit(True)
 
     def close(self):
-        """Arrête le thread lecteur et libère le port COM."""
+        """Arrête le thread lecteur et libère le port COM (Windows : débloquer read avant join)."""
+        if not self.is_open() and self._reader is None:
+            return
         reader = self._reader
         self._reader = None
         if reader:
-            reader._stop.set()
-        self._conn.close()
+            try:
+                reader._stop.set()
+            except Exception:
+                pass
+        try:
+            self._conn.close()
+        except Exception as exc:
+            logger.warning("Fermeture port série : %s", exc)
         if reader:
-            if getattr(reader, "_th", None):
-                reader._th.join(timeout=2.0)
-                if reader._th.is_alive():
-                    logger.warning("Thread lecteur série non arrêté dans le délai imparti")
-            reader._th = None
+            try:
+                reader.stop()
+            except Exception as exc:
+                logger.warning("Arrêt lecteur série : %s", exc)
+            th = getattr(reader, "_th", None)
+            if th is not None and th.is_alive():
+                logger.warning("Thread lecteur série non arrêté dans le délai imparti")
         self.connected_changed.emit(False)
         logger.info("Port série fermé")
 

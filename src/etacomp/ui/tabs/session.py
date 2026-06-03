@@ -4,10 +4,11 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
-    QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox,
-    QGroupBox, QFormLayout as QF, QWidget as QW, QLabel, QDialog, QDialogButtonBox
+    QPushButton, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox,
+    QGroupBox, QFormLayout as QF, QWidget as QW, QLabel, QDialog, QDialogButtonBox,
+    QSizePolicy,
 )
-from PySide6.QtCore import QEvent, Signal
+from PySide6.QtCore import Signal
 
 from ...io.storage import list_comparators, list_detenteurs, add_detenteur, upsert_comparator, list_bancs_etalon_for_session
 from ...state.session_store import session_store
@@ -27,6 +28,10 @@ BTN_NEUTRAL_CSS = (
 BTN_SUCCESS_CSS = (
     "QPushButton{background:#28a745;color:#fff;font-weight:600;padding:6px 12px;border-radius:6px;}"
     "QPushButton:hover{background:#218838;}"
+)
+BTN_REFRESH_PORTS_CSS = (
+    "QPushButton{background:#0ea5b7;color:#fff;font-weight:600;padding:4px 10px;border-radius:6px;}"
+    "QPushButton:hover{background:#10b6ca;}"
 )
 
 
@@ -55,9 +60,12 @@ class SessionTab(QWidget):
             "1 cycle = S1+S2, 2 cycles = S1–S4. Au-delà : v1.1."
         )
         self.measures = QSpinBox(); self.measures.setRange(1, 1000); self.measures.setToolTip("Nombre de mesures prévues / série.")
-        self.obs = QTextEdit(); self.obs.setToolTip("Observations/conditions (texte libre multi‑lignes). Saisie validée à la perte de focus ou Ctrl+Entrée.")
+        self.observations = QLineEdit()
+        self.observations.setPlaceholderText("Observations (texte libre, optionnel)")
+        self.observations.setToolTip("Commentaires ou conditions particulières — enregistré avec la session et repris à l'export PDF.")
 
-        form = QFormLayout()
+        grp_session = QGroupBox("Session")
+        form = QFormLayout(grp_session)
         form.addRow("Opérateur", self.operator)
         form.addRow("Date", self.date)
         form.addRow("Température", self.temp)
@@ -69,14 +77,19 @@ class SessionTab(QWidget):
         form.addRow("Banc étalon", self.banc_combo)
         form.addRow(f"Cycles montée/descente (max. {MAX_CAMPAIGN_CYCLES})", self.series)
         form.addRow("Mesures / série (prévu)", self.measures)
-        form.addRow("Observations", self.obs)
+        form.addRow("Observations", self.observations)
 
         # ---- Connexion série (déplacée ici) ----
         self.grp_conn = QGroupBox("Connexion au dispositif (RS-232/USB)")
         fconn: QF = QF(self.grp_conn)
         self.combo_port = QComboBox(); self.combo_port.setToolTip("Port COM (ex: COM3).")
-        self.btn_refresh_ports = QPushButton("↻"); self.btn_refresh_ports.setToolTip("Rafraîchir les ports détectés.")
-        pbar = QHBoxLayout(); pbar.addWidget(self.combo_port); pbar.addWidget(self.btn_refresh_ports)
+        self.btn_refresh_ports = QPushButton("Rafraîchir ports")
+        self.btn_refresh_ports.setToolTip("Rechercher les ports COM / USB série disponibles sur ce PC.")
+        self.btn_refresh_ports.setStyleSheet(BTN_REFRESH_PORTS_CSS)
+        self.btn_refresh_ports.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        pbar = QHBoxLayout()
+        pbar.addWidget(self.combo_port, stretch=1)
+        pbar.addWidget(self.btn_refresh_ports, stretch=0)
 
         self.combo_baud = QComboBox(); self.combo_baud.addItems(["4800","9600","19200","38400","57600","115200"])
         self.combo_baud.setCurrentText("4800"); self.combo_baud.setToolTip("Vitesse (bauds). Par défaut 4800.")
@@ -102,7 +115,7 @@ class SessionTab(QWidget):
         bar = QHBoxLayout(); bar.addWidget(self.btn_new); bar.addWidget(self.btn_load); bar.addWidget(self.btn_save_session); bar.addStretch()
 
         wrapper = QVBoxLayout(self)
-        wrapper.addLayout(form)
+        wrapper.addWidget(grp_session)
         wrapper.addWidget(self.grp_conn)
         wrapper.addLayout(bar)
         wrapper.addStretch()
@@ -126,10 +139,7 @@ class SessionTab(QWidget):
         self.banc_combo.currentIndexChanged.connect(self._push_metadata_from_ui)
         self.series.valueChanged.connect(self._push_metadata_from_ui)
         self.measures.valueChanged.connect(self._push_metadata_from_ui)
-        # Observations: on valide à la perte de focus (ou Ctrl+Entrée). On évite l'update à chaque caractère.
-        self._obs_dirty = False
-        self.obs.textChanged.connect(lambda: setattr(self, "_obs_dirty", True))
-        self.obs.installEventFilter(self)
+        self.observations.editingFinished.connect(self._push_observations_from_ui)
 
         # Écoute du store
         session_store.session_changed.connect(self._refresh_from_store)
@@ -239,7 +249,7 @@ class SessionTab(QWidget):
 
     def _refresh_from_store(self, s):
         # Bloque les signaux le temps de remplir
-        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.holder_combo, self.banc_combo, self.obs):
+        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.holder_combo, self.banc_combo, self.observations):
             w.blockSignals(True)
 
         self.operator.setText(s.operator or "")
@@ -264,11 +274,10 @@ class SessionTab(QWidget):
         cycles, _ = clamp_series_count(s.series_count)
         self.series.setValue(cycles)
         self.measures.setValue(max(1, s.measures_per_series or 1))
-        self.obs.setPlainText(s.observations or "")
+        self.observations.setText(s.observations or "")
 
-        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.holder_combo, self.banc_combo, self.obs):
+        for w in (self.operator, self.temp, self.humi, self.series, self.measures, self.comparator_combo, self.holder_combo, self.banc_combo, self.observations):
             w.blockSignals(False)
-        self._obs_dirty = False
 
     def _push_metadata_from_ui(self):
         session_store.update_metadata(
@@ -280,45 +289,15 @@ class SessionTab(QWidget):
             banc_ref=self.banc_combo.currentData(),
             series_count=int(self.series.value()),
             measures_per_series=int(self.measures.value()),
-            observations=self.obs.toPlainText().strip() or None,
+            observations=self.observations.text().strip() or None,
         )
 
-    def _commit_observations(self):
-        """Valide le champ Observations en une fois (bloc multi‑lignes)."""
-        txt = (self.obs.toPlainText() or "").strip()
-        session_store.update_metadata(
-            operator=self.operator.text().strip(),
-            temperature_c=self.temp.value(),
-            humidity_pct=self.humi.value(),
-            comparator_ref=self.comparator_combo.currentData(),
-            holder_ref=self.holder_combo.currentData(),
-            banc_ref=self.banc_combo.currentData(),
-            series_count=int(self.series.value()),
-            measures_per_series=int(self.measures.value()),
-            observations=txt or None,
-        )
-        self._obs_dirty = False
-
-    def eventFilter(self, obj, event):
-        """Valide Observations à la perte de focus ou Ctrl+Entrée."""
-        if obj is self.obs:
-            et = event.type()
-            if et == QEvent.FocusOut and self._obs_dirty:
-                self._commit_observations()
-            elif et == QEvent.KeyPress:
-                try:
-                    key = event.key()
-                    mods = int(event.modifiers())
-                    # 0x01000005 = Qt.Key_Enter, 0x01000004 = Qt.Key_Return ; 0x04000000 = Qt.ControlModifier
-                    if key in (0x01000005, 0x01000004) and (mods & 0x04000000):
-                        self._commit_observations()
-                        return True
-                except Exception:
-                    pass
-        return super().eventFilter(obj, event)
+    def _push_observations_from_ui(self):
+        session_store.update_observations(self.observations.text().strip() or None)
 
     # ----- actions -----
     def _save_session(self):
+        self._push_observations_from_ui()
         if not session_store.can_save():
             QMessageBox.warning(self, "Impossible", "Aucune mesure dans la session — enregistrement interdit.")
             return
