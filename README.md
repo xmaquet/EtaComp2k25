@@ -47,3 +47,14 @@ La CI GitHub Actions exécute `pytest` sur les branches `main` et `stabilisation
 ## Dépendances
 
 Python ≥ 3.10, PySide6, pydantic, pyserial, matplotlib, reportlab. Développement : `pip install -e ".[dev]"` (pytest).
+
+## Référentiel normatif
+
+Les calculs et tolérances de cette application sont basés sur :
+
+- **2RMAT-MO-S4-09-B** : Mode opératoire *Vérifier un comparateur* (2e RMAT, 27/04/2017).
+- **Normes associées** :
+  - NF X07-011 : Métrologie dans l’entreprise.
+  - NF E 11-057 : Spécification géométrique des produits (GPS).
+  - NF EN ISO 463 : Instruments de mesurage dimensionnel — Comparateurs mécaniques à cadran.
+- **Unités** : Toutes les valeurs sont en **millimètres (mm)**.

@@ -8,6 +8,10 @@ from src.etacomp.core.calculation_engine import CalculatedResults
 
 
 def make_rules(tmp: Path) -> Path:
+    """
+    Fixtures de test génériques (non alignées sur 2RMAT-MO-S4-09-B).
+    Pour la conformité MO, voir tests/test_default_rules_2rmat.py.
+    """
     data = {
         "normale": [
             {"graduation": 0.01, "course_min": 0.0, "course_max": 10.0, "Emt": 0.013, "Eml": 0.010, "Ef": 0.003, "Eh": 0.010},

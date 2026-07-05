@@ -310,8 +310,14 @@ def get_default_rules_path() -> Path:
 
 
 def create_default_rules() -> ToleranceRuleEngine:
-    """Crée un moteur avec des règles par défaut conformes au tableau fourni.
-    Note: Eml absente pour 'faible' et 'limitée'."""
+    """Crée un moteur avec les règles par défaut (2RMAT-MO-S4-09-B §7.2).
+
+    Source : 2RMAT-MO-S4-09-B §7.2 (27/04/2017).
+    Références normatives : NF X07-011, NF E 11-057, NF EN ISO 463.
+    Toutes les valeurs sont en millimètres (mm) — document original en µm.
+
+    Note: Eml absente pour 'faible' et 'limitée' (§7.1 du MO).
+    """
     engine = ToleranceRuleEngine()
     base_normale = [
         ToleranceRule(graduation=0.001, course_min=0.0,  course_max=1.0,   Emt=0.005, Eml=0.003, Ef=0.00025, Eh=0.002),

@@ -7,6 +7,13 @@
 
 ## 1. Présentation générale
 
+### Référence principale
+
+- **2RMAT-MO-S4-09-B** : Document source pour les tolérances et le protocole de mesure.
+  - Date : 27/04/2017.
+  - Émetteur : 2e RMAT (Cellule Métrologie, Bruz).
+  - Disponible : [2RMAT MO S4 09 B Verifier un comparateur.pdf](../2RMAT%20MO%20S4%2009%20B%20Verifier%20un%20comparateur.pdf).
+
 ### 1.1 Finalité métier
 
 L’application EtaComp2K25 est un logiciel de **vérification métrologique des comparateurs** (capteurs de mesure de déplacement). Elle permet de :

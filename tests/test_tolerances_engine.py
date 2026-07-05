@@ -26,8 +26,9 @@ class TestToleranceRuleEngine:
     def setup_method(self):
         """Configuration avant chaque test."""
         self.engine = ToleranceRuleEngine()
-        
-        # Règles de test selon les spécifications
+
+        # Fixtures génériques (non alignées sur 2RMAT-MO-S4-09-B).
+        # Conformité MO : tests/test_default_rules_2rmat.py
         self.engine.rules["normale"] = [
             ToleranceRule(
                 graduation=0.01, course_min=0.0, course_max=10.0,
