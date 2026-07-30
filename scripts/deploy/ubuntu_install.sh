@@ -136,30 +136,68 @@ PYCHECK
 # --- Icône application ---------------------------------------------------------
 
 install_app_icon() {
+    local icon_base="${HOME}/.local/share/icons/hicolor"
+    local icon_scalable="${icon_base}/scalable/apps"
+    local icon_256="${icon_base}/256x256/apps"
+    local icon_48="${icon_base}/48x48/apps"
+    local png_src_256="${INSTALL_DIR}/scripts/deploy/icons/256x256/apps/${ICON_NAME}.png"
+    local png_src_48="${INSTALL_DIR}/scripts/deploy/icons/48x48/apps/${ICON_NAME}.png"
+
     if [[ ! -f "${ICON_SRC}" ]]; then
         warn "Icône introuvable : ${ICON_SRC} — icône générique conservée."
         return 0
     fi
 
-    local icon_scalable="${HOME}/.local/share/icons/hicolor/scalable/apps"
-    mkdir -p "${icon_scalable}"
+    mkdir -p "${icon_scalable}" "${icon_256}" "${icon_48}"
     cp "${ICON_SRC}" "${icon_scalable}/${ICON_NAME}.svg"
 
+    if [[ -f "${png_src_256}" ]]; then
+        cp "${png_src_256}" "${icon_256}/${ICON_NAME}.png"
+    fi
+    if [[ -f "${png_src_48}" ]]; then
+        cp "${png_src_48}" "${icon_48}/${ICON_NAME}.png"
+    fi
+
+    if [[ ! -f "${icon_base}/index.theme" ]]; then
+        cat > "${icon_base}/index.theme" <<'EOF'
+[icon theme]
+Name=Hicolor
+Comment=Fallback icon theme
+Directories=scalable/apps,256x256/apps,48x48/apps
+
+[scalable/apps]
+Size=256
+Type=Scalable
+MinSize=1
+MaxSize=512
+
+[256x256/apps]
+Size=256
+Type=Fixed
+
+[48x48/apps]
+Size=48
+Type=Fixed
+EOF
+    fi
+
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-        gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
+        gtk-update-icon-cache -f -t "${icon_base}" 2>/dev/null || true
     fi
     ok "Icône installée : ${icon_scalable}/${ICON_NAME}.svg"
+    [[ -f "${icon_256}/${ICON_NAME}.png" ]] && ok "PNG 256 : ${icon_256}/${ICON_NAME}.png"
 }
 
 # --- Raccourci bureau ----------------------------------------------------------
 
 create_desktop_entry() {
-    local desktop_dir icon_line
+    local desktop_dir icon_line icon_png
     desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || echo "${HOME}/Desktop")"
+    icon_png="${HOME}/.local/share/icons/hicolor/256x256/apps/${ICON_NAME}.png"
     mkdir -p "$(dirname "${DESKTOP_FILE}")" "${desktop_dir}"
 
-    if [[ -f "${HOME}/.local/share/icons/hicolor/scalable/apps/${ICON_NAME}.svg" ]]; then
-        icon_line="Icon=${ICON_NAME}"
+    if [[ -f "${icon_png}" ]]; then
+        icon_line="Icon=${icon_png}"
     elif [[ -f "${ICON_SRC}" ]]; then
         icon_line="Icon=${ICON_SRC}"
     else
