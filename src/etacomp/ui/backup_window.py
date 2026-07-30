@@ -81,7 +81,7 @@ class BackupWindow(QWidget):
         cat_layout = QVBoxLayout(cat_group)
         stats = {s.category_id: s for s in category_stats()}
         for cat in BACKUP_CATEGORIES:
-            st = stats[cat.category_id]
+            st = stats[cat.id]
             suffix = ""
             if st.file_count:
                 suffix = f" ({st.file_count} fichier{'s' if st.file_count > 1 else ''}, {format_bytes(st.total_bytes)})"
@@ -90,7 +90,7 @@ class BackupWindow(QWidget):
             cb = QCheckBox(f"{cat.label}{suffix}")
             cb.setChecked(cat.default and st.file_count > 0)
             cb.setEnabled(st.file_count > 0 or cat.default)
-            self._checkboxes[cat.category_id] = cb
+            self._checkboxes[cat.id] = cb
             cat_layout.addWidget(cb)
 
         btn_row = QHBoxLayout()
