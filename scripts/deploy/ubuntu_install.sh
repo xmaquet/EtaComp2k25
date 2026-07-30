@@ -16,6 +16,8 @@ INSTALL_DIR="${ETACOMP_INSTALL_DIR:-${HOME}/EtaComp2k25}"
 VENV_DIR="${INSTALL_DIR}/.venv"
 DESKTOP_FILE="${HOME}/.local/share/applications/etacomp.desktop"
 APP_ID="etacomp2k25"
+ICON_NAME="${APP_ID}"
+ICON_SRC="${INSTALL_DIR}/src/etacomp/resources/etaComp.svg"
 
 # Paquets système requis pour PySide6/Qt sous Ubuntu Desktop
 APT_PACKAGES=(
@@ -131,10 +133,38 @@ PYCHECK
     ok "Application installée dans le venv."
 }
 
+# --- Icône application ---------------------------------------------------------
+
+install_app_icon() {
+    if [[ ! -f "${ICON_SRC}" ]]; then
+        warn "Icône introuvable : ${ICON_SRC} — icône générique conservée."
+        return 0
+    fi
+
+    local icon_scalable="${HOME}/.local/share/icons/hicolor/scalable/apps"
+    mkdir -p "${icon_scalable}"
+    cp "${ICON_SRC}" "${icon_scalable}/${ICON_NAME}.svg"
+
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
+    fi
+    ok "Icône installée : ${icon_scalable}/${ICON_NAME}.svg"
+}
+
 # --- Raccourci bureau ----------------------------------------------------------
 
 create_desktop_entry() {
-    mkdir -p "$(dirname "${DESKTOP_FILE}")"
+    local desktop_dir icon_line
+    desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || echo "${HOME}/Desktop")"
+    mkdir -p "$(dirname "${DESKTOP_FILE}")" "${desktop_dir}"
+
+    if [[ -f "${HOME}/.local/share/icons/hicolor/scalable/apps/${ICON_NAME}.svg" ]]; then
+        icon_line="Icon=${ICON_NAME}"
+    elif [[ -f "${ICON_SRC}" ]]; then
+        icon_line="Icon=${ICON_SRC}"
+    else
+        icon_line="Icon=applications-science"
+    fi
 
     cat > "${DESKTOP_FILE}" <<EOF
 [Desktop Entry]
@@ -143,17 +173,23 @@ Name=EtaComp2K25
 Comment=Vérification de comparateurs (métrologie)
 Exec=${VENV_DIR}/bin/etacomp
 Path=${INSTALL_DIR}
-Icon=applications-science
+${icon_line}
 Terminal=false
 Categories=Science;Engineering;
 StartupWMClass=${APP_ID}
 EOF
 
-    chmod +x "${DESKTOP_FILE}"
+    cp "${DESKTOP_FILE}" "${desktop_dir}/EtaComp2K25.desktop"
+    chmod +x "${DESKTOP_FILE}" "${desktop_dir}/EtaComp2K25.desktop"
+
+    if command -v gio >/dev/null 2>&1; then
+        gio set "${desktop_dir}/EtaComp2K25.desktop" metadata::trusted true 2>/dev/null || true
+    fi
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database "${HOME}/.local/share/applications" 2>/dev/null || true
     fi
-    ok "Raccourci créé : ${DESKTOP_FILE}"
+    ok "Raccourci menu : ${DESKTOP_FILE}"
+    ok "Raccourci bureau : ${desktop_dir}/EtaComp2K25.desktop"
 }
 
 # --- Port série (adaptateur RS-232 USB) ----------------------------------------
@@ -235,6 +271,7 @@ main() {
     install_apt_packages
     clone_or_update_repo
     setup_venv
+    install_app_icon
     create_desktop_entry
     setup_serial_access
     ensure_user_data_dir

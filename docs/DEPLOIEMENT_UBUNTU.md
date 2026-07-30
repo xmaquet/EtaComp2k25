@@ -26,7 +26,7 @@ Guide pas à pas pour un PC Ubuntu Desktop déjà installé. Aucune connaissance
 | Code source (Git) | `~/EtaComp2k25/` | Stockage + mises à jour via GitHub |
 | Environnement Python | `~/EtaComp2k25/.venv/` | Exécution isolée de l'application |
 | Données métier | `~/.EtaComp2K25/` | Sessions, comparateurs, PDF exportés |
-| Raccourci bureau | Menu Applications → **EtaComp2K25** | Lancement en un clic |
+| Raccourci bureau | **EtaComp2K25** sur le Bureau + menu Applications | Lancement en un clic |
 
 Le profil utilisateur démarre **vide** (pas de comparateurs pré-chargés).
 
@@ -106,7 +106,7 @@ Le script va :
 - cloner/mettre à jour le dépôt GitHub
 - créer l'environnement Python `.venv`
 - installer l'application (`pip install -e ".[dev]"`)
-- créer le raccourci **EtaComp2K25** dans le menu
+- créer le raccourci **EtaComp2K25** sur le **Bureau** et dans le menu Applications
 - ajouter votre utilisateur au groupe **dialout** (port série)
 
 **Durée :** 5–15 minutes selon la connexion.
@@ -119,10 +119,15 @@ Menu en haut à droite → icône utilisateur → **Se déconnecter** → reconn
 
 ### 2.4 — Lancer l'application
 
-**Méthode 1 — Menu :**
+**Méthode 1 — Bureau :**
+- Double-cliquez sur **EtaComp2K25** sur le Bureau (`~/Bureau/`)
+
+> Si Ubuntu demande « Autoriser le lancement » au premier clic : clic droit → **Autoriser le lancement**.
+
+**Méthode 2 — Menu :**
 - Touche Super → tapez `EtaComp` → cliquez **EtaComp2K25**
 
-**Méthode 2 — Terminal :**
+**Méthode 3 — Terminal :**
 
 ```bash
 ~/EtaComp2k25/.venv/bin/etacomp
