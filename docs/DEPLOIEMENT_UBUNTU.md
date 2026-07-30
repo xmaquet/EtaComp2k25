@@ -135,6 +135,16 @@ Menu en haut à droite → icône utilisateur → **Se déconnecter** → reconn
 
 L'application doit s'ouvrir en plein écran.
 
+### 2.5 — Sauvegarde des données (clé USB)
+
+Double-cliquez sur **Sauvegarde EtaComp** sur le Bureau (ou `~/EtaComp2k25/.venv/bin/etacomp-backup`).
+
+1. Branchez une clé USB — elle apparaît dans la liste **Destination**
+2. Cochez les données à exporter (comparateurs, sessions, règles…)
+3. Cliquez **Exporter** → archive `EtaComp_backup_AAAA-MM-JJ_HHMM.zip` sur la clé
+
+Pour restaurer après réinstallation : **Restaurer…** → choisir l'archive (sauvegarde de sécurité automatique de l'existant).
+
 ---
 
 ## Phase 3 — Configurer le port série TESA
