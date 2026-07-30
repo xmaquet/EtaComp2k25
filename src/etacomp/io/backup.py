@@ -4,11 +4,14 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
+
+import getpass
 
 from .. import __version__
 from ..config.export_config import EXPORT_CONFIG_FILE
@@ -172,50 +175,111 @@ def category_stats(data_dir: Optional[Path] = None) -> list[CategoryStats]:
     return stats
 
 
+def _current_username() -> str:
+    return (
+        os.environ.get("USER")
+        or os.environ.get("LOGNAME")
+        or os.environ.get("USERNAME")
+        or getpass.getuser()
+        or Path.home().name
+    )
+
+
+def _add_mount(mounts: list[tuple[str, Path]], seen: set[Path], path: Path, label: str | None = None) -> None:
+    try:
+        if not path.is_dir():
+            return
+        resolved = path.resolve()
+    except OSError:
+        return
+    if resolved in seen:
+        return
+    if not os.access(resolved, os.W_OK):
+        return
+    seen.add(resolved)
+    name = label or path.name
+    mounts.append((f"{name}  ({resolved})", resolved))
+
+
+def _mounts_from_lsblk() -> list[tuple[str, Path]]:
+    """Volumes amovibles via lsblk (complément udisks/GNOME)."""
+    try:
+        proc = subprocess.run(
+            ["lsblk", "-J", "-o", "NAME,RM,HOTPLUG,MOUNTPOINT,LABEL,MODEL"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return []
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return []
+
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return []
+
+    found: list[tuple[str, Path]] = []
+
+    def walk(nodes: list[dict]) -> None:
+        for node in nodes:
+            mountpoint = node.get("mountpoint")
+            rm = bool(node.get("rm"))
+            hotplug = bool(node.get("hotplug"))
+            if mountpoint and (rm or hotplug):
+                mp = Path(mountpoint)
+                label = node.get("label") or node.get("model") or mp.name
+                found.append((str(label), mp))
+            children = node.get("children") or []
+            if children:
+                walk(children)
+
+    walk(data.get("blockdevices") or [])
+    return found
+
+
 def list_removable_mounts() -> list[tuple[str, Path]]:
-    """Retourne (libellé, chemin) des volumes externes probables."""
+    """Retourne (libellé, chemin) des volumes externes montés."""
     mounts: list[tuple[str, Path]] = []
     seen: set[Path] = set()
-    user = os.environ.get("USER") or Path.home().name
+    user = _current_username()
 
-    roots: list[Path] = []
     if os.name == "nt":
         import string
 
         for letter in string.ascii_uppercase:
-            root = Path(f"{letter}:/")
+            root = Path(f"{letter}:\\")
             if root.exists():
-                roots.append(root)
-    else:
-        roots.extend(
-            [
-                Path("/media") / user,
-                Path("/run/media") / user,
-                Path("/mnt"),
-            ]
-        )
+                _add_mount(mounts, seen, root, f"Disque {letter}:")
+        return mounts
 
-    for root in roots:
-        if not root.exists():
-            continue
-        if root in (Path("/"), Path.home()):
+    parent_dirs: list[Path] = [
+        Path("/media") / user,
+        Path("/run/media") / user,
+        Path("/mnt"),
+    ]
+    # Secours si USER non défini au lancement depuis le Bureau
+    media_root = Path("/media")
+    if media_root.is_dir():
+        for entry in media_root.iterdir():
+            if entry.is_dir() and entry not in parent_dirs:
+                parent_dirs.append(entry)
+
+    for parent in parent_dirs:
+        if not parent.is_dir():
             continue
         try:
-            children = [root] if root.name not in ("media", "mnt") and root.is_dir() else list(root.iterdir())
+            children = list(parent.iterdir())
         except OSError:
             continue
         for child in children:
-            if not child.is_dir():
+            if child.name.startswith("."):
                 continue
-            try:
-                resolved = child.resolve()
-            except OSError:
-                continue
-            if resolved in seen:
-                continue
-            seen.add(resolved)
-            label = f"{child.name}  ({resolved})"
-            mounts.append((label, resolved))
+            _add_mount(mounts, seen, child)
+
+    for label, path in _mounts_from_lsblk():
+        _add_mount(mounts, seen, path, label)
 
     return mounts
 

@@ -65,3 +65,22 @@ def test_read_manifest_rejects_missing_manifest(tmp_path: Path):
 def test_export_requires_categories(data_dir: Path, tmp_path: Path):
     with pytest.raises(ValueError, match="catégorie"):
         export_backup(tmp_path / "x.zip", [])
+
+
+def test_list_removable_mounts_under_media_user(tmp_path: Path, monkeypatch):
+    user = "testuser"
+    usb = tmp_path / "media" / user / "A8FF-1F3B"
+    usb.mkdir(parents=True)
+
+    monkeypatch.setattr(backup_mod, "_current_username", lambda: user)
+    monkeypatch.setattr(backup_mod, "_mounts_from_lsblk", lambda: [])
+
+    mounts: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+    parent = tmp_path / "media" / user
+    for child in parent.iterdir():
+        backup_mod._add_mount(mounts, seen, child)
+
+    assert len(mounts) == 1
+    assert "A8FF-1F3B" in mounts[0][0]
+    assert mounts[0][1] == usb.resolve()
