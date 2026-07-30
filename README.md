@@ -48,6 +48,15 @@ La CI GitHub Actions exécute `pytest` sur les branches `main` et `stabilisation
 
 Python ≥ 3.10, PySide6, pydantic, pyserial, matplotlib, reportlab. Développement : `pip install -e ".[dev]"` (pytest).
 
+## Déploiement Ubuntu Desktop
+
+Guide pas à pas (Ubuntu 26.04 déjà installé → script automatique) : `docs/DEPLOIEMENT_UBUNTU.md`.
+
+```bash
+git clone --branch main https://github.com/xmaquet/EtaComp2k25.git ~/EtaComp2k25
+bash ~/EtaComp2k25/scripts/deploy/ubuntu_install.sh
+```
+
 ## Référentiel normatif
 
 Les calculs et tolérances de cette application sont basés sur :
