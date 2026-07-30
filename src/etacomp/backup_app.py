@@ -46,5 +46,10 @@ def run() -> None:
     _apply_app_icon(app)
 
     window = BackupWindow()
+    window.resize(580, 540)
     window.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    run()

@@ -276,15 +276,17 @@ create_backup_desktop_entry() {
 
     cat > "${BACKUP_DESKTOP_FILE}" <<EOF
 [Desktop Entry]
+Version=1.0
 Type=Application
 Name=Sauvegarde EtaComp
 Comment=Exporter et restaurer les donnees EtaComp vers un support externe
-Exec=${VENV_DIR}/bin/etacomp-backup
+TryExec=${INSTALL_DIR}/scripts/deploy/launch-backup.sh
+Exec=${INSTALL_DIR}/scripts/deploy/launch-backup.sh
 Path=${INSTALL_DIR}
 ${icon_line}
 Terminal=false
-Categories=Utility;Archiving;
-StartupWMClass=${BACKUP_APP_ID}
+Categories=Utility;
+StartupNotify=true
 EOF
 
     cp "${BACKUP_DESKTOP_FILE}" "${desktop_dir}/Sauvegarde-EtaComp.desktop"

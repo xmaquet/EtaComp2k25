@@ -7,7 +7,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -34,10 +33,11 @@ from ..io.backup import (
 )
 
 
-class BackupWindow(QDialog):
+class BackupWindow(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Sauvegarde EtaComp")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.Window)
         self.setMinimumWidth(560)
         self.setMinimumHeight(520)
         self._checkboxes: dict[str, QCheckBox] = {}
@@ -120,7 +120,7 @@ class BackupWindow(QDialog):
         self.btn_restore = QPushButton("Restaurer…")
         self.btn_restore.clicked.connect(self._on_restore)
         btn_close = QPushButton("Fermer")
-        btn_close.clicked.connect(self.accept)
+        btn_close.clicked.connect(self.close)
         actions.addWidget(self.btn_export)
         actions.addWidget(self.btn_restore)
         actions.addStretch()
