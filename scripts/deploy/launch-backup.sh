@@ -2,7 +2,7 @@
 # Lanceur Bureau pour etacomp-backup (journalise les erreurs de démarrage).
 set -u
 
-INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INSTALL_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 VENV_BIN="${INSTALL_DIR}/.venv/bin/etacomp-backup"
 LOG="${HOME}/.local/share/etacomp-backup.log"
 

@@ -280,8 +280,8 @@ Version=1.0
 Type=Application
 Name=Sauvegarde EtaComp
 Comment=Exporter et restaurer les donnees EtaComp vers un support externe
-TryExec=${INSTALL_DIR}/scripts/deploy/launch-backup.sh
-Exec=${INSTALL_DIR}/scripts/deploy/launch-backup.sh
+TryExec=${VENV_DIR}/bin/etacomp-backup
+Exec=${VENV_DIR}/bin/etacomp-backup
 Path=${INSTALL_DIR}
 ${icon_line}
 Terminal=false
