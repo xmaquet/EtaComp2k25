@@ -27,6 +27,7 @@ dev = [
 
 [project.scripts]
 etacomp = "etacomp.app:run"
+etacomp-backup = "etacomp.backup_app:run"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

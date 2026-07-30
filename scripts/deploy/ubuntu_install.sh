@@ -18,6 +18,10 @@ DESKTOP_FILE="${HOME}/.local/share/applications/etacomp.desktop"
 APP_ID="etacomp2k25"
 ICON_NAME="${APP_ID}"
 ICON_SRC="${INSTALL_DIR}/src/etacomp/resources/etaComp.svg"
+BACKUP_APP_ID="etacomp-backup"
+BACKUP_ICON_NAME="${BACKUP_APP_ID}"
+BACKUP_ICON_SRC="${INSTALL_DIR}/src/etacomp/resources/etaCompBackup.svg"
+BACKUP_DESKTOP_FILE="${HOME}/.local/share/applications/etacomp-backup.desktop"
 
 # Paquets système requis pour PySide6/Qt sous Ubuntu Desktop
 APT_PACKAGES=(
@@ -230,6 +234,68 @@ EOF
     ok "Raccourci bureau : ${desktop_dir}/EtaComp2K25.desktop"
 }
 
+# --- Icône + raccourci sauvegarde ----------------------------------------------
+
+install_backup_icon() {
+    local icon_base="${HOME}/.local/share/icons/hicolor"
+    local icon_scalable="${icon_base}/scalable/apps"
+    local icon_256="${icon_base}/256x256/apps"
+    local icon_48="${icon_base}/48x48/apps"
+    local png_src_256="${INSTALL_DIR}/scripts/deploy/icons/backup/256x256/apps/${BACKUP_ICON_NAME}.png"
+    local png_src_48="${INSTALL_DIR}/scripts/deploy/icons/backup/48x48/apps/${BACKUP_ICON_NAME}.png"
+
+    if [[ ! -f "${BACKUP_ICON_SRC}" ]]; then
+        warn "Icône sauvegarde introuvable — raccourci backup ignoré."
+        return 0
+    fi
+
+    mkdir -p "${icon_scalable}" "${icon_256}" "${icon_48}"
+    cp "${BACKUP_ICON_SRC}" "${icon_scalable}/${BACKUP_ICON_NAME}.svg"
+    [[ -f "${png_src_256}" ]] && cp "${png_src_256}" "${icon_256}/${BACKUP_ICON_NAME}.png"
+    [[ -f "${png_src_48}" ]] && cp "${png_src_48}" "${icon_48}/${BACKUP_ICON_NAME}.png"
+
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t "${icon_base}" 2>/dev/null || true
+    fi
+    ok "Icône sauvegarde : ${icon_scalable}/${BACKUP_ICON_NAME}.svg"
+}
+
+create_backup_desktop_entry() {
+    local desktop_dir icon_line icon_png
+    desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || echo "${HOME}/Desktop")"
+    icon_png="${HOME}/.local/share/icons/hicolor/256x256/apps/${BACKUP_ICON_NAME}.png"
+    mkdir -p "$(dirname "${BACKUP_DESKTOP_FILE}")" "${desktop_dir}"
+
+    if [[ -f "${icon_png}" ]]; then
+        icon_line="Icon=${icon_png}"
+    elif [[ -f "${BACKUP_ICON_SRC}" ]]; then
+        icon_line="Icon=${BACKUP_ICON_SRC}"
+    else
+        icon_line="Icon=document-save"
+    fi
+
+    cat > "${BACKUP_DESKTOP_FILE}" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Sauvegarde EtaComp
+Comment=Exporter et restaurer les donnees EtaComp vers un support externe
+Exec=${VENV_DIR}/bin/etacomp-backup
+Path=${INSTALL_DIR}
+${icon_line}
+Terminal=false
+Categories=Utility;Archiving;
+StartupWMClass=${BACKUP_APP_ID}
+EOF
+
+    cp "${BACKUP_DESKTOP_FILE}" "${desktop_dir}/Sauvegarde-EtaComp.desktop"
+    chmod +x "${BACKUP_DESKTOP_FILE}" "${desktop_dir}/Sauvegarde-EtaComp.desktop"
+
+    if command -v gio >/dev/null 2>&1; then
+        gio set "${desktop_dir}/Sauvegarde-EtaComp.desktop" metadata::trusted true 2>/dev/null || true
+    fi
+    ok "Raccourci sauvegarde : ${desktop_dir}/Sauvegarde-EtaComp.desktop"
+}
+
 # --- Port série (adaptateur RS-232 USB) ----------------------------------------
 
 setup_serial_access() {
@@ -274,9 +340,11 @@ print_summary() {
   Environnement Python     : ${VENV_DIR}
   Données métier           : ~/.EtaComp2K25/
   Raccourci                : Menu Applications → EtaComp2K25
+  Sauvegarde               : Bureau → Sauvegarde EtaComp
 
   Lancer depuis le terminal :
     ${VENV_DIR}/bin/etacomp
+    ${VENV_DIR}/bin/etacomp-backup
 
   Mettre à jour plus tard :
     cd ${INSTALL_DIR}
@@ -311,6 +379,8 @@ main() {
     setup_venv
     install_app_icon
     create_desktop_entry
+    install_backup_icon
+    create_backup_desktop_entry
     setup_serial_access
     ensure_user_data_dir
     print_summary

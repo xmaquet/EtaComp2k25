@@ -57,6 +57,8 @@ git clone --branch main https://github.com/xmaquet/EtaComp2k25.git ~/EtaComp2k25
 bash ~/EtaComp2k25/scripts/deploy/ubuntu_install.sh
 ```
 
+Sauvegarde des données (clé USB, disque externe) : raccourci Bureau **Sauvegarde EtaComp** ou `etacomp-backup`.
+
 ## Référentiel normatif
 
 Les calculs et tolérances de cette application sont basés sur :
